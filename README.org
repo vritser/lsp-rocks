@@ -1,0 +1,2 @@
+* lsp-rocks
+A websocket-based asynchronous LSP Client.
