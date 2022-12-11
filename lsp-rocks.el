@@ -27,6 +27,7 @@
 (require 'json)
 (require 'map)
 (require 'seq)
+(require 's)
 (require 'subr-x)
 (require 'websocket)
 
@@ -85,13 +86,9 @@ Setting this to nil or 0 will turn off the indicator."
   "Company callback.")
 
 (defvar lsp-rocks-language-server-configuration
-  '((scala-mode . ("scala" . "metals"))
-    (java-mode . ("java" . "jdtls"))
-    (python-mode . ("python" . "pyright"))
-    (rust-mode . ("rust" . "rust-analyzer"))
-    (go-mode . ("go" . "gopls"))
-    (typescript-mode . ("typescript" . "typescript-language-server")))
-  "Language server configuration.")
+  (list (list 'rust-mode (list :name "rust" :command "/Users/vritser/Downloads/rust-analyzer/server/rust-analyzer" :args (vector)))
+        (list 'python-mode (list :name "python" :command "pyright-langserver" :args (vector "--stdio")))
+        (list 'typescript-mode (list :name "typescript" :command "/Users/vritser/.emacs.d/.cache/lsp/npm/typescript-language-server/bin/typescript-language-server" :args (vector "--stdio")))))
 
 (defvar-local lsp-rocks--before-change-begin-pos nil)
 
@@ -162,17 +159,21 @@ Setting this to nil or 0 will turn off the indicator."
              (let ((mode-or-pattern (car it)))
                (cond
                 ((and (stringp mode-or-pattern)
-                      (s-matches? mode-or-pattern (buffer-file-name))) (cdr it))
-                ((eq mode-or-pattern major-mode) (cdr it)))))
+                      (s-matches? mode-or-pattern (buffer-file-name))) (cadr it))
+                ((eq mode-or-pattern major-mode) (cadr it)))))
            lsp-rocks-language-server-configuration))
 
 (defun lsp-rocks--websocket-on-open-handler (socket)
-  (let ((config (lsp-rocks--buffer-language-conf)))
+  (let* ((config (lsp-rocks--buffer-language-conf))
+         (language (plist-get config :name))
+         (command (plist-get config :command))
+         (args (plist-get config :args)))
     (lsp-rocks--request "init"
-                        (list
-                         :project (lsp-rocks--suggest-project-root)
-                         :language (car config)
-                         :command (cdr config)))))
+                        (list :project (lsp-rocks--suggest-project-root)
+                              :language language
+                              :command command
+                              :args args
+                              :clientInfo (list :name "Emacs" :version (emacs-version))))))
 
 (defun lsp-rocks--websocket-message-handler (socket frame)
   (let* ((msg (lsp-rocks--json-parse (websocket-frame-payload frame)))

@@ -1,4 +1,4 @@
-import { LanguageClient, TransportKind } from './client';
+import { LanguageClient } from './client';
 import { Server, WebSocket, WebSocketServer } from 'ws';
 import { randomUUID } from 'crypto';
 
@@ -15,6 +15,14 @@ enum EmacsCommand {
 }
 
 const emacsCommands = Object.values(EmacsCommand);
+
+interface InitParams {
+  language: string;
+  project: string;
+  command: string;
+  args: string[];
+  clientInfo: { name: string, version: string };
+}
 
 namespace Message {
   export function isResponse(msg: Message): msg is ResponseMessage {
@@ -97,14 +105,13 @@ export class LspRocks {
 
   }
 
-  private async ensureClient(clientId: string, params?: { language: string, project: string, command: string }): Promise<LanguageClient> {
+  private async ensureClient(clientId: string, params?: InitParams): Promise<LanguageClient> {
     let client = this._clients.get(clientId);
-
     if (client === undefined) {
       if (params != undefined) {
-        client = new LanguageClient(params.language, params.project, {}, {
+        client = new LanguageClient(params.language, params.project, params.clientInfo, {
           command: params.command,
-          transport: TransportKind.stdio,
+          args: params.args,
           options: { cwd: params.project },
         });
         this._clients.set(clientId, client);

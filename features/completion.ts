@@ -50,8 +50,9 @@ export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionPar
   }
 
   public async runWith(params: CompletionParams) {
-    const resp = await this.client.sendRequest(CompletionRequest.type, params);
+    const { prefix } = params as EmacsCompletionParams;
 
+    const resp = await this.client.sendRequest(CompletionRequest.type, params);
     if (resp == null) return [];
 
     // TODO
@@ -61,7 +62,7 @@ export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionPar
 
     const { items } = resp;
 
-    const candidates = items.filter(it => it.label.startsWith((params as EmacsCompletionParams).prefix))
+    const candidates = items.filter(it => it.label.startsWith(prefix))
       .slice(0, this.max_completion_size)
       .sort((a, b) => {
         if (a.sortText != undefined && b.sortText != undefined) {
