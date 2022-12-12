@@ -25,7 +25,6 @@
 ;;; Code:
 (require 'cl-lib)
 (require 'json)
-(require 'map)
 (require 'seq)
 (require 's)
 (require 'subr-x)
@@ -186,6 +185,7 @@ Setting this to nil or 0 will turn off the indicator."
       (pcase cmd
         ("get_var" (lsp-rocks--response id cmd (list :value (symbol-value (intern (plist-get params :name))))))
         ("textDocument/completion" (funcall lsp-rocks--company-callback (lsp-rocks--parse-completion data)))
+        ("completionItem/resolve" (lsp-rocks--process-completion-resolve data))
         ("textDocument/definition" (lsp-rocks--process-find-definition (plist-get data :uri) (plist-get data :position)))))))
 
 (defun lsp-rocks--create-websocket-client (url)
@@ -218,13 +218,13 @@ Setting this to nil or 0 will turn off the indicator."
       (format "%s" (cadr process-info)))))
 
 (defun lsp-rocks-restart ()
-  ""
+  "Restart."
   (lsp-rocks-shutdown)
   (lsp-rocks--start-server)
   (message "[LSP-Rocks] Server restarted."))
 
 (defun lsp-rocks--start-server ()
-  ""
+  "Start the server."
   (unless lsp-rocks--server-port
     (setq lsp-rocks--server-port (lsp-rocks--get-free-port)))
   (setq lsp-rocks--server-process
@@ -258,7 +258,7 @@ Setting this to nil or 0 will turn off the indicator."
 (defun lsp-rocks--completion-prefix ()
   "Return the completion prefix.
 Return value is compatible with the `prefix' command of a company backend.
-Return nil if no completion should be triggered. Return a string
+Return nil if no completion should be triggered.  Return a string
 as the prefix to be completed, or a cons cell of (prefix . t) to bypass
 `company-minimum-prefix-length' for trigger characters."
   (or (let* ((max-trigger-len (apply 'max (mapcar (lambda (trigger-char)
@@ -282,6 +282,87 @@ as the prefix to be completed, or a cons cell of (prefix . t) to bypass
             symbol-cons)))
       (company-grab-symbol)))
 
+(defun lsp-rocks--apply-text-edits (edits &optional version)
+  "Apply EDITS for current buffer if at VERSION, or if it's nil."
+  (atomic-change-group
+    (let* ((change-group (prepare-change-group))
+           (howmany (length edits))
+           (reporter (make-progress-reporter
+                      (format "[lsp-rocks] applying %s edits to `%s'..."
+                              howmany (current-buffer))
+                      0 howmany))
+           (done 0))
+      (mapc (pcase-lambda (`(,newText ,beg . ,end))
+              (let ((source (current-buffer)))
+                (with-temp-buffer
+                  (insert newText)
+                  (let ((temp (current-buffer)))
+                    (with-current-buffer source
+                      (save-excursion
+                        (save-restriction
+                          (narrow-to-region beg end)
+
+                          ;; On emacs versions < 26.2,
+                          ;; `replace-buffer-contents' is buggy - it calls
+                          ;; change functions with invalid arguments - so we
+                          ;; manually call the change functions here.
+                          ;;
+                          ;; See emacs bugs #32237, #32278:
+                          ;; https://debbugs.gnu.org/cgi/bugreport.cgi?bug=32237
+                          ;; https://debbugs.gnu.org/cgi/bugreport.cgi?bug=32278
+                          (let ((inhibit-modification-hooks t)
+                                (length (- end beg))
+                                (beg (marker-position beg))
+                                (end (marker-position end)))
+                            (run-hook-with-args 'before-change-functions
+                                                beg end)
+                            (replace-buffer-contents temp)
+                            (run-hook-with-args 'after-change-functions
+                                                beg (+ beg (length newText))
+                                                length))))
+                      (progress-reporter-update reporter (cl-incf done)))))))
+            (mapcar (lambda (edit)
+                      (let ((range (plist-get edit :insert))
+                            (newText (plist-get edit :newText)))
+                        (cons newText (lsp-rocks--range-region range 'markers))))
+                    (reverse edits)))
+      (undo-amalgamate-change-group change-group)
+      (progress-reporter-done reporter))))
+
+(defun lsp-rocks--company-post-completion (candidate)
+  "Replace a CompletionItem's label with its insertText.  Apply text edits.
+
+CANDIDATE is a string returned by `company-lsp--make-candidate'."
+  (let* ((resolved (get-text-property 0 'resolved-item candidate))
+         (label (plist-get resolved :label))
+         ;; (start (- (point) (length label)))
+         (insertText (plist-get resolved :insertText))
+         ;; 1 = plaintext, 2 = snippet
+         (insertTextFormat (plist-get resolved :insertTextFormat))
+         (textEdit (plist-get resolved :textEdit))
+         (additionalTextEdits (plist-get resolved :additionalTextEdits))
+         (snippet-fn (and (eql insertTextFormat 2)
+                          (lsp-rocks--snippet-expansion-fn))))
+    (cond (textEdit
+           (delete-region (+ (- (point) (length candidate)))
+                          (point))
+           (let ((range (plist-get textEdit :insert))
+                 (newText (plist-get textEdit :newText)))
+             (pcase-let ((`(,beg . ,end)
+                          (lsp-rocks--range-region range)))
+               (delete-region beg end)
+               (goto-char beg)
+               (funcall (or snippet-fn #'insert) newText))))
+          (snippet-fn
+           ;; A snippet should be inserted, but using plain
+           ;; `insertText'.  This requires us to delete the
+           ;; whole completion, since `insertText' is the full
+           ;; completion's text.
+           (delete-region (- (point) (length candidate)) (point))
+           (funcall snippet-fn (or insertText label))))
+    (when (cl-plusp (length additionalTextEdits))
+      (lsp-rocks--apply-text-edits additionalTextEdits))))
+
 (defun company-lsp-rocks (command &optional arg &rest ignored)
   "`company-mode' completion backend existing file names.
 Completions works for proper absolute and relative files paths.
@@ -296,7 +377,13 @@ File paths with spaces are only supported inside strings."
     (no-cache t)
     (sorted t)
     (annotation (format " (%s)" (lsp-rocks--candidate-kind arg)))
-    (meta (get-text-property 0 'detail arg))))
+    (meta (get-text-property 0 'detail arg))
+    (post-completion (lsp-rocks--company-post-completion arg))))
+
+(defun lsp-rocks--company-set-selection-advice (&rest args)
+  (when-let (label (nth (car args) company-candidates))
+    (lsp-rocks--resolve label)))
+(advice-add 'company-set-selection :after #'lsp-rocks--company-set-selection-advice)
 
 ;;; websocket request functions
 (defun lsp-rocks--did-open ()
@@ -327,6 +414,10 @@ File paths with spaces are only supported inside strings."
                             (if (member prefix lsp-rocks--trigger-characters)
                                 (list :triggerKind 2 :triggerCharacter prefix)
                               (list :triggerKind 1)))))
+
+(defun lsp-rocks--resolve (label)
+  (lsp-rocks--request "completionItem/resolve"
+                      (list :label label)))
 
 (defun lsp-rocks-find-definition ()
   "Find definition."
@@ -365,39 +456,65 @@ File paths with spaces are only supported inside strings."
   (alist-get (get-text-property 0 'kind item)
              lsp-rocks--kind->symbol))
 
-(defun lsp-rocks--parse-completion (data)
-  (cl-mapcar (lambda (it)
-               (let* ((ret (plist-get it :newText))
-                     (kind (plist-get it :kind))
-                     (detail (plist-get it :detail)))
-                 (put-text-property 0 1 'kind kind ret)
-                 (put-text-property 0 1 'detail detail ret)
-                 ret))
-             data))
+(defun lsp-rocks--parse-completion (completions)
+  "Parse LPS server returned COMPLETIONS."
+  (let* ((head (car completions))
+         (tail (cdr completions))
+         (head-label (plist-get head :label)))
+    (put-text-property 0 1 'kind (plist-get head :kind) head-label)
+    (put-text-property 0 1 'detail (plist-get head :detail) head-label)
+    (put-text-property 0 1 'resolved-item head head-label)
+    (cons head-label
+          (cl-mapcar (lambda (it)
+                       (let* ((ret (plist-get it :label))
+                              (kind (plist-get it :kind))
+                              (detail (plist-get it :detail)))
+                         (put-text-property 0 1 'kind kind ret)
+                         (put-text-property 0 1 'detail detail ret)
+                         ret))
+                     tail))))
 
-(defun lsp-rocks--point-from (position &optional marker)
-  "Convert POSITION to point.
+(defun lsp-rocks--lsp-position-to-point (pos-plist &optional marker)
+  "Convert LSP position POS-PLIST to Emacs point.
 If optional MARKER, return a marker instead"
   (save-excursion
     (save-restriction
       (widen)
       (goto-char (point-min))
       (forward-line (min most-positive-fixnum
-                         (plist-get position :line)))
+                         (plist-get pos-plist :line)))
       (unless (eobp) ;; if line was excessive leave point at eob
         (let ((tab-width 1)
-              (character (plist-get position :character)))
-          (unless (wholenump character)
+              (col (plist-get pos-plist :character)))
+          (unless (wholenump col)
             (message
-             "[LSP Rocks] Caution: LSP server sent invalid character position %s. Using 0 instead."
-             character)
-            (setq character 0))
-          ;; We cannot use `move-to-column' here, because it moves to *visual*
-          ;; columns, which can be different from LSP columns in case of
-          ;; `whitespace-mode', `prettify-symbols-mode', etc.
-          (goto-char (min (+ (line-beginning-position) character)
+             "Caution: LSP server sent invalid character position %s. Using 0 instead."
+             col)
+            (setq col 0))
+          (goto-char (min (+ (line-beginning-position) col)
                           (line-end-position)))))
       (if marker (copy-marker (point-marker)) (point)))))
+
+(defun lsp-rocks--range-region (range &optional markers)
+  "Return region (BEG . END) that represents LSP RANGE.
+If optional MARKERS, make markers."
+  (let* ((st (plist-get range :start))
+         (beg (lsp-rocks--lsp-position-to-point st markers))
+         (end (lsp-rocks--lsp-position-to-point (plist-get range :end) markers)))
+    (cons beg end)))
+
+(defun lsp-rocks--snippet-expansion-fn ()
+  "Compute a function to expand snippets.
+Doubles as an indicator of snippet support."
+  (and (boundp 'yas-minor-mode)
+       (symbol-value 'yas-minor-mode)
+       'yas-expand-snippet))
+
+(defun lsp-rocks--process-completion-resolve (item)
+  "Process LSP resolved completion ITEM."
+  (message "idx: %s, label: %s" company-selection (nth company-selection company-candidates))
+  (let ((candidate (nth company-selection company-candidates)))
+    (put-text-property 0 1 'resolved-item item candidate)))
 
 (defun lsp-rocks--process-find-definition (filepath position)
   ;; Record postion.
@@ -407,7 +524,7 @@ If optional MARKER, return a marker instead"
   ;; Jump to define.
   (find-file filepath)
 
-  (goto-char (lsp-rocks--point-from position))
+  (goto-char (lsp-rocks--lsp-position-to-point position))
   (recenter)
 
   ;; Flash define line.
@@ -497,12 +614,12 @@ If optional MARKER, return a marker instead"
   (unless lsp-rocks--server-process
     (lsp-rocks--start-server))
 
-  (sleep-for 1)
+  (sleep-for 0 300)
   (unless (lsp-rocks--get-websocket-client)
     (lsp-rocks--save-websocket-client (lsp-rocks--create-websocket-client
                                        (concat (if lsp-rocks-use-ssl "wss://" "ws://")
                                                lsp-rocks-server-host ":" lsp-rocks--server-port))))
-  (sleep-for 1)
+  (sleep-for 0 500)
   (lsp-rocks--did-open)
   (add-to-list 'company-backends 'company-lsp-rocks)
   (dolist (hook lsp-rocks--internal-hooks)
@@ -518,7 +635,7 @@ If optional MARKER, return a marker instead"
 (define-minor-mode lsp-rocks-mode
   "LSP Rocks mode."
   :keymap lsp-rocks-mode-map
-  :lighter "LSP/R"
+  :lighter " LSP/R"
   :init-value nil
   (if lsp-rocks-mode
       (lsp-rocks--enable)

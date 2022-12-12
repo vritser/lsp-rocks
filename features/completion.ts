@@ -6,7 +6,12 @@ export interface EmacsCompletionParams extends CompletionParams {
   prefix: string;
 }
 
-export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionParams, CompletionParams, Promise<any>, CompletionRegistrationOptions> {
+/**
+ * Store the CompletionItem corresponding to the label
+ */
+const labelCompletionMap: Map<string, CompletionItem> = new Map();
+
+export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionParams, CompletionParams, Promise<CompletionItem[]>, CompletionRegistrationOptions> {
 
   private max_completion_size = 100;
 
@@ -50,6 +55,7 @@ export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionPar
   }
 
   public async runWith(params: CompletionParams) {
+    labelCompletionMap.clear();
     const { prefix } = params as EmacsCompletionParams;
 
     const resp = await this.client.sendRequest(CompletionRequest.type, params);
@@ -60,9 +66,7 @@ export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionPar
       return [];
     }
 
-    const { items } = resp;
-
-    const candidates = items.filter(it => it.label.startsWith(prefix))
+    const completions = resp.items.filter(it => it.label.startsWith(prefix))
       .slice(0, this.max_completion_size)
       .sort((a, b) => {
         if (a.sortText != undefined && b.sortText != undefined) {
@@ -74,27 +78,13 @@ export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionPar
         return 0;
       });
 
-    const completions = candidates.map(it => {
-      const { textEdit, insertText, insertTextFormat, label, kind, detail } = it;
-      let newText = label;
-
-      if (textEdit != null) {
-        newText = textEdit.newText;
-      }
-      if (insertText != null) {
-        newText = insertText;
-      }
-
-      return {
-        label,
-        newText,
-        kind,
-        detail: detail || '',
-        insertTextFormat: insertTextFormat || InsertTextFormat.PlainText,
-      };
-    });
+    const head = completions.shift()
+    if (head != undefined) {
+      const resolvedHead = await this.client.sendRequest(CompletionResolveRequest.type, head);
+      completions.unshift(resolvedHead);
+    }
+    completions.forEach(it => labelCompletionMap.set(it.label, it));
     return completions;
-
   }
 
   public get registrationType(): RegistrationType<CompletionRegistrationOptions> {
@@ -104,7 +94,7 @@ export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionPar
 }
 
 
-export class CompletionItemResolveFeature extends RunnableDynamicFeature<CompletionItem, CompletionItem, Promise<any>, void> {
+export class CompletionItemResolveFeature extends RunnableDynamicFeature<CompletionItem, CompletionItem, Promise<CompletionItem>, void> {
 
   constructor(private client: LanguageClient) {
     super();
@@ -119,12 +109,15 @@ export class CompletionItemResolveFeature extends RunnableDynamicFeature<Complet
   }
 
   public createParams(params: CompletionItem): CompletionItem {
-    return params;
+    const item = labelCompletionMap.get(params.label);
+    if (item == undefined) {
+      throw new Error(`Can not find CompletionItem by label ${params.label}`);
+    }
+    return item;
   }
 
   public async runWith(params: CompletionItem) {
-    const resp = await this.client.sendRequest(CompletionResolveRequest.type, params);
-    return resp;
+    return this.client.sendRequest(CompletionResolveRequest.type, params);
   }
 
   public get registrationType() {
