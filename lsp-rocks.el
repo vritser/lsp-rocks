@@ -86,9 +86,10 @@ Setting this to nil or 0 will turn off the indicator."
   "Company callback.")
 
 (defvar lsp-rocks-language-server-configuration
-  (list (list 'rust-mode (list :name "rust" :command "/Users/vritser/Downloads/rust-analyzer/server/rust-analyzer" :args (vector)))
+  (list (list 'rust-mode (list :name "rust" :command "rust-analyzer" :args (vector)))
         (list 'python-mode (list :name "python" :command "pyright-langserver" :args (vector "--stdio")))
-        (list 'typescript-mode (list :name "typescript" :command "/Users/vritser/.emacs.d/.cache/lsp/npm/typescript-language-server/bin/typescript-language-server" :args (vector "--stdio")))))
+        (list 'java-mode (list :name "java" :command "jdtls" :args (vector)))
+        (list 'typescript-mode (list :name "typescript" :command "typescript-language-server" :args (vector "--stdio")))))
 
 (defvar-local lsp-rocks--before-change-begin-pos nil)
 
