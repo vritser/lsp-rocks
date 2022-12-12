@@ -319,6 +319,9 @@ export class LanguageClient {
   }
 
   private async initialize(connection: ProtocolConnection, clientInfo: any): Promise<InitializeResult> {
+    // May language server need some initialization options.
+    const langserverConfig = `./langserver/${this._language}`;
+    const initializationOptions = fs.existsSync(langserverConfig) ? require(langserverConfig) : {};
     const initParams: InitializeParams = {
       processId: null,
       clientInfo,
@@ -326,6 +329,7 @@ export class LanguageClient {
       rootPath: this._project,
       rootUri: `file://${this._project}`,
       capabilities: this.computeClientCapabilities(),
+      initializationOptions,
       workspaceFolders: [{
         uri: `file://${this._project}`,
         name: this._project.slice(this._project.lastIndexOf('/')),

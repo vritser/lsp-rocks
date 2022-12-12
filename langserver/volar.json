@@ -1,0 +1,7 @@
+{
+  "initializationOptions": {
+    "typescript": {
+      "tsdk": "/usr/local/lib/node_modules/typescript/lib"
+    }
+  }
+}
