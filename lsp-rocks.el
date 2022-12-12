@@ -188,7 +188,8 @@ Setting this to nil or 0 will turn off the indicator."
         ("get_var" (lsp-rocks--response id cmd (list :value (symbol-value (intern (plist-get params :name))))))
         ("textDocument/completion" (funcall lsp-rocks--company-callback (lsp-rocks--parse-completion data)))
         ("completionItem/resolve" (lsp-rocks--process-completion-resolve data))
-        ("textDocument/definition" (lsp-rocks--process-find-definition (plist-get data :uri) (plist-get data :position)))))))
+        ("textDocument/definition" (lsp-rocks--process-find-definition (plist-get data :uri) (plist-get data :position)))
+        ("textDocument/declaration" (lsp-rocks--process-find-definition (plist-get data :uri) (plist-get data :position)))))))
 
 (defun lsp-rocks--create-websocket-client (url)
   "Create a websocket client that connects to URL."
@@ -454,6 +455,17 @@ File paths with spaces are only supported inside strings."
     (goto-char position)
     (unless (equal buffer this-buffer)
       (switch-to-buffer buffer))))
+
+(defun lsp-rocks-find-declaration ()
+  "Find declaration."
+  (interactive)
+  (lsp-rocks--request "textDocument/declaration"
+                      (list :textDocument
+                            (list :uri (lsp-rocks--current-file-uri))
+                            :position
+                            (lsp-rocks--position))))
+
+(defalias 'lsp-rocks-find-declaration-return #'lsp-rocks-find-definition-return)
 
 (defun lsp-rocks--candidate-kind (item)
   "Return ITEM's kind."

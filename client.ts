@@ -19,6 +19,7 @@ import { DynamicFeature, ensure, RunnableDynamicFeature } from './features/featu
 import { DidChangeTextDocumentFeature, DidOpenTextDocumentFeature } from './features/textSynchronization';
 import { CompletionFeature, CompletionItemResolveFeature } from './features/completion';
 import { DefinitionFeature } from './features/definition';
+import { DeclarationFeature } from './features/declaration';
 
 
 enum ClientState {
@@ -353,6 +354,7 @@ export class LanguageClient {
     this.registerFeature(new CompletionFeature(this));
     this.registerFeature(new CompletionItemResolveFeature(this));
     this.registerFeature(new DefinitionFeature(this));
+    this.registerFeature(new DeclarationFeature(this));
   }
 
   protected fillInitializeParams(params: InitializeParams): void {
