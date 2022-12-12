@@ -15,7 +15,7 @@ export class DeclarationFeature extends RunnableDynamicFeature<DeclarationParams
   }
 
   public fillClientCapabilities(capabilities: ClientCapabilities): void {
-    const definitionSupport = ensure(ensure(capabilities, 'textDocument')!, 'definition')!;
+    const definitionSupport = ensure(ensure(capabilities, 'textDocument')!, 'declaration')!;
     definitionSupport.dynamicRegistration = true;
     definitionSupport.linkSupport = true;
   }
