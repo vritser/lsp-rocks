@@ -35,7 +35,7 @@
   "LSP-Rocks group."
   :group 'applications)
 
-(defcustom lsp-rocks-server-bin "/path/to/cli.js"
+(defcustom lsp-rocks-server-bin (concat (substring load-file-name 0 (s-index-of "lsp-rocks.el" load-file-name)) "lib/cli.js")
   "Location of lsp-rocks server."
   :group 'lsp-rocks)
 
