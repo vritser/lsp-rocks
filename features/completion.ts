@@ -30,7 +30,7 @@ export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionPar
       deprecatedSupport: true,
       preselectSupport: true,
       tagSupport: { valueSet: [CompletionItemTag.Deprecated] },
-      insertReplaceSupport: true,
+      insertReplaceSupport: false,
       resolveSupport: {
         properties: ['documentation', 'detail', 'additionalTextEdits']
       },

@@ -75,6 +75,8 @@ Setting this to nil or 0 will turn off the indicator."
 (defvar lsp-rocks--mark-ring nil
   "The list of saved lsp-rocks marks, most recent first.")
 
+(defvar lsp-rocks--last-prefix nil)
+
 (defvar lsp-rocks--websocket-clients (make-hash-table :test 'equal :size 16)
   "LSP-Rocks websocket connection.")
 
@@ -322,7 +324,7 @@ as the prefix to be completed, or a cons cell of (prefix . t) to bypass
                                                 length))))
                       (progress-reporter-update reporter (cl-incf done)))))))
             (mapcar (lambda (edit)
-                      (let ((range (plist-get edit :insert))
+                      (let ((range (plist-get edit :range))
                             (newText (plist-get edit :newText)))
                         (cons newText (lsp-rocks--range-region range 'markers))))
                     (reverse edits)))
@@ -346,7 +348,8 @@ CANDIDATE is a string returned by `company-lsp--make-candidate'."
     (cond (textEdit
            (delete-region (+ (- (point) (length candidate)))
                           (point))
-           (let ((range (plist-get textEdit :insert))
+           (insert lsp-rocks--last-prefix)
+           (let ((range (plist-get textEdit :range))
                  (newText (plist-get textEdit :newText)))
              (pcase-let ((`(,beg . ,end)
                           (lsp-rocks--range-region range)))
@@ -372,7 +375,8 @@ File paths with spaces are only supported inside strings."
     (interactive (company-begin-backend 'company-yuf))
     (prefix (lsp-rocks--completion-prefix))
     (candidates (cons :async (lambda (callback)
-                               (setq lsp-rocks--company-callback callback)
+                               (setq lsp-rocks--company-callback callback
+                                     lsp-rocks--last-prefix arg)
                                (lsp-rocks--completion arg))))
     (no-cache t)
     (sorted t)
