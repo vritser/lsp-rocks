@@ -1,14 +1,9 @@
-import { ClientCapabilities, ServerCapabilities, DocumentSelector, RegistrationType, DefinitionRegistrationOptions, Location, DocumentUri, Position, DeclarationRequest, DeclarationParams, DeclarationRegistrationOptions } from "vscode-languageserver-protocol";
+import { ClientCapabilities, ServerCapabilities, DocumentSelector, RegistrationType, DefinitionRegistrationOptions, Location, DeclarationRequest, DeclarationParams, DeclarationRegistrationOptions, LocationLink } from "vscode-languageserver-protocol";
 import { LanguageClient } from "../client";
 import { RunnableDynamicFeature, ensure } from "./features";
 import { fileURLToPath } from 'node:url'
 
-interface EmacsDefinitionResp {
-  uri: DocumentUri,
-  position: Position,
-}
-
-export class DeclarationFeature extends RunnableDynamicFeature<DeclarationParams, DeclarationParams, Promise<EmacsDefinitionResp>, DefinitionRegistrationOptions> {
+export class DeclarationFeature extends RunnableDynamicFeature<DeclarationParams, DeclarationParams, Promise<Location[]>, DefinitionRegistrationOptions> {
 
   constructor(private client: LanguageClient) {
     super();
@@ -28,33 +23,21 @@ export class DeclarationFeature extends RunnableDynamicFeature<DeclarationParams
     return params;
   }
 
-  public async runWith(params: DeclarationParams): Promise<EmacsDefinitionResp> {
-    const emptyDefinition = { uri: '', position: { line: 0, character: 0 } };
+  public async runWith(params: DeclarationParams): Promise<Location[]> {
     const resp = await this.client.sendRequest(DeclarationRequest.type, params);
-    if (resp == null) return emptyDefinition;
+    if (resp == null) return [];
 
     if (Array.isArray(resp)) {
-      if (resp.length > 0) {
-        const [location] = resp;
-        if (this.isLocation(location)) {
-          return {
-            uri: fileURLToPath(location.uri),
-            position: location.range.start,
-          };
+      return resp.map((it: Location | LocationLink) => {
+        if (this.isLocation(it)) {
+          return { uri: fileURLToPath(it.uri), range: it.range };
         } else {
-          return {
-            uri: fileURLToPath(location.targetUri),
-            position: location.targetRange.start,
-          };
+          return { uri: fileURLToPath(it.targetUri), range: it.targetRange };
         }
-      }
-      return emptyDefinition;
-    } else {
-      return {
-        uri: fileURLToPath(resp.uri),
-        position: resp.range.start,
-      };
+      });
     }
+
+    return [{ uri: fileURLToPath(resp.uri), range: resp.range }];
   }
 
   private isLocation(value: any): value is Location {

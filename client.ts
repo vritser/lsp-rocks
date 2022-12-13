@@ -20,6 +20,7 @@ import { DidChangeTextDocumentFeature, DidOpenTextDocumentFeature } from './feat
 import { CompletionFeature, CompletionItemResolveFeature } from './features/completion';
 import { DefinitionFeature } from './features/definition';
 import { DeclarationFeature } from './features/declaration';
+import { ReferencesFeature } from './features/reference';
 
 
 enum ClientState {
@@ -355,6 +356,7 @@ export class LanguageClient {
     this.registerFeature(new CompletionItemResolveFeature(this));
     this.registerFeature(new DefinitionFeature(this));
     this.registerFeature(new DeclarationFeature(this));
+    this.registerFeature(new ReferencesFeature(this));
   }
 
   protected fillInitializeParams(params: InitializeParams): void {

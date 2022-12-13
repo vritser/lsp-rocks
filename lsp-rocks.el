@@ -29,6 +29,7 @@
 (require 's)
 (require 'subr-x)
 (require 'websocket)
+(require 'lsp-rocks-xref)
 
 (defgroup lsp-rocks nil
   "LSP-Rocks group."
@@ -188,8 +189,10 @@ Setting this to nil or 0 will turn off the indicator."
         ("get_var" (lsp-rocks--response id cmd (list :value (symbol-value (intern (plist-get params :name))))))
         ("textDocument/completion" (funcall lsp-rocks--company-callback (lsp-rocks--parse-completion data)))
         ("completionItem/resolve" (lsp-rocks--process-completion-resolve data))
-        ("textDocument/definition" (lsp-rocks--process-find-definition (plist-get data :uri) (plist-get data :position)))
-        ("textDocument/declaration" (lsp-rocks--process-find-definition (plist-get data :uri) (plist-get data :position)))))))
+        ("textDocument/definition" (lsp-rocks--process-find-definition data))
+        ("textDocument/declaration" (lsp-rocks--process-find-definition data))
+        ("textDocument/references" (lsp-rocks--process-find-definition data))
+        ))))
 
 (defun lsp-rocks--create-websocket-client (url)
   "Create a websocket client that connects to URL."
@@ -467,6 +470,17 @@ File paths with spaces are only supported inside strings."
 
 (defalias 'lsp-rocks-find-declaration-return #'lsp-rocks-find-definition-return)
 
+(defun lsp-rocks-find-references ()
+  "Find definition."
+  (interactive)
+  (lsp-rocks--request "textDocument/references"
+                      (list :textDocument
+                            (list :uri (lsp-rocks--current-file-uri))
+                            :position
+                            (lsp-rocks--position)
+                            :context
+                            (list :includeDeclaration t))))
+
 (defun lsp-rocks--candidate-kind (item)
   "Return ITEM's kind."
   (alist-get (get-text-property 0 'kind item)
@@ -532,22 +546,70 @@ Doubles as an indicator of snippet support."
   (let ((candidate (nth company-selection company-candidates)))
     (put-text-property 0 1 'resolved-item item candidate)))
 
-(defun lsp-rocks--process-find-definition (filepath position)
-  ;; Record postion.
-  (set-marker (mark-marker) (point) (current-buffer))
-  (add-to-history 'lsp-rocks--mark-ring (copy-marker (mark-marker)) lsp-rocks-mark-ring-max-size t)
+;;;;;;;;;;;;;;;;;;; xref ;;;;;;;;;;;;;;;;;;;
+(defun lsp-rocks--xref-backend () "lsp-rocks xref backend." 'xref-lsp-rocks)
 
-  ;; Jump to define.
-  (find-file filepath)
+(cl-defmethod xref-backend-identifier-at-point ((_backend (eql xref-lsp-rocks)))
+  (propertize (or (thing-at-point 'symbol) "")
+              'identifier-at-point t))
 
-  (goto-char (lsp-rocks--lsp-position-to-point position))
-  (recenter)
+(cl-defmethod xref-backend-identifier-completion-table ((_backend (eql xref-lsp-rocks)))
+  (list (propertize (or (thing-at-point 'symbol) "")
+                    'identifier-at-point t)))
 
-  ;; Flash define line.
-  (require 'pulse)
-  (let ((pulse-iterations 1)
-        (pulse-delay lsp-rocks-flash-line-delay))
-    (pulse-momentary-highlight-one-line (point) 'lsp-rocks-font-lock-flash)))
+(cl-defmethod xref-backend-definitions ((_backend (eql xref-lsp-rocks)) identifier callback)
+  (save-excursion
+    (setq lsp-rocks--xref-callback callback)
+    (lsp-rocks-find-definition)))
+
+(cl-defmethod xref-backend-references ((_backend (eql xref-lsp-rocks)) identifier callback)
+  (save-excursion
+    (setq lsp-rocks--xref-callback callback)
+    (lsp-rocks-find-references)))
+
+;; (defun lsp-rocks--process-find-definition (filepath position)
+;;   ;; Record postion.
+;;   (set-marker (mark-marker) (point) (current-buffer))
+;;   (add-to-history 'lsp-rocks--mark-ring (copy-marker (mark-marker)) lsp-rocks-mark-ring-max-size t)
+
+;;   ;; Jump to define.
+;;   (find-file filepath)
+
+;;   (goto-char (lsp-rocks--lsp-position-to-point position))
+;;   (recenter)
+
+;;   ;; Flash define line.
+;;   (require 'pulse)
+;;   (let ((pulse-iterations 1)
+;;         (pulse-delay lsp-rocks-flash-line-delay))
+;;     (pulse-momentary-highlight-one-line (point) 'lsp-rocks-font-lock-flash)))
+
+(defun lsp-rocks--process-find-definition (locations)
+  ""
+  (funcall lsp-rocks--xref-callback
+           (cl-mapcar (lambda (it)
+                        (let* ((filepath (plist-get it :uri))
+                               (range (plist-get it :range))
+                               (start (plist-get range :start))
+                               (end (plist-get range :end))
+                               (start-line (plist-get start :line))
+                               (start-column (plist-get start :character))
+                               (end-line (plist-get end :line))
+                               (end-column (plist-get end :character)))
+                          (save-excursion
+                            (save-restriction
+                              (widen)
+                              (let* ((beg (lsp-rocks--lsp-position-to-point (list :line (1+ start-line) :character start-column)))
+                                     (end (lsp-rocks--lsp-position-to-point (list :line (1+ end-line) :character end-column)))
+                                     (bol (progn (goto-char beg) (point-at-bol)))
+                                     (summary (buffer-substring bol (point-at-eol)))
+                                     (hi-beg (- beg bol))
+                                     (hi-end (- (min (point-at-eol) end) bol))
+                                     )
+                                (add-face-text-property hi-beg hi-end 'xref-match t summary)
+                                (xref-make summary
+                                           (xref-make-file-location filepath (1+ start-line) start-column)))))))
+                      locations)))
 
 (defun lsp-rocks--json-parse (json)
   (json-parse-string json :object-type 'plist :array-type 'list))
@@ -638,6 +700,7 @@ Doubles as an indicator of snippet support."
   (sleep-for 0 500)
   (lsp-rocks--did-open)
   (add-to-list 'company-backends 'company-lsp-rocks)
+  (add-hook 'xref-backend-functions 'lsp-rocks--xref-backend nil t)
   (dolist (hook lsp-rocks--internal-hooks)
     (add-hook (car hook) (cdr hook) nil t)))
 
