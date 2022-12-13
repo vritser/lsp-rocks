@@ -16,7 +16,7 @@ import {
 
 import { CancellationStrategy, ConnectionOptions, Message, MessageReader, MessageSignature, MessageWriter, RAL, ResponseError, StreamMessageReader, StreamMessageWriter, generateRandomPipeName } from 'vscode-jsonrpc/node';
 import { DynamicFeature, ensure, RunnableDynamicFeature } from './features/features';
-import { DidChangeTextDocumentFeature, DidOpenTextDocumentFeature } from './features/textSynchronization';
+import { DidChangeTextDocumentFeature, DidCloseTextDocumentFeature, DidOpenTextDocumentFeature, DidSaveTextDocumentFeature, WillSaveTextDocumentFeature } from './features/textSynchronization';
 import { CompletionFeature, CompletionItemResolveFeature } from './features/completion';
 import { DefinitionFeature } from './features/definition';
 import { DeclarationFeature } from './features/declaration';
@@ -351,7 +351,10 @@ export class LanguageClient {
 
   protected registerBuiltinFeatures() {
 		this.registerFeature(new DidOpenTextDocumentFeature(this));
+		this.registerFeature(new DidCloseTextDocumentFeature(this));
 		this.registerFeature(new DidChangeTextDocumentFeature(this));
+		this.registerFeature(new WillSaveTextDocumentFeature(this));
+		this.registerFeature(new DidSaveTextDocumentFeature(this));
     this.registerFeature(new CompletionFeature(this));
     this.registerFeature(new CompletionItemResolveFeature(this));
     this.registerFeature(new DefinitionFeature(this));

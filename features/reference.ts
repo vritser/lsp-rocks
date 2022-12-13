@@ -1,4 +1,4 @@
-import { ClientCapabilities, ServerCapabilities, DocumentSelector, RegistrationType, Location, DocumentUri, Position, ReferenceParams, ReferenceRegistrationOptions, ReferencesRequest } from "vscode-languageserver-protocol";
+import { ClientCapabilities, RegistrationType, Location, ReferenceParams, ReferenceRegistrationOptions, ReferencesRequest } from "vscode-languageserver-protocol";
 import { LanguageClient } from "../client";
 import { RunnableDynamicFeature, ensure } from "./features";
 import { fileURLToPath } from 'node:url'
@@ -11,14 +11,6 @@ export class ReferencesFeature extends RunnableDynamicFeature<ReferenceParams, R
 
   public fillClientCapabilities(capabilities: ClientCapabilities): void {
     ensure(ensure(capabilities, 'textDocument')!, 'references')!.dynamicRegistration = true;
-  }
-
-  public initialize(capabilities: ServerCapabilities<any>, documentSelector: DocumentSelector | undefined): void {
-    //
-  }
-
-  public createParams(params: ReferenceParams): ReferenceParams {
-    return params;
   }
 
   public async runWith(params: ReferenceParams): Promise<Location[]> {

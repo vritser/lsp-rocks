@@ -1,4 +1,4 @@
-import { ClientCapabilities, CompletionItem, CompletionItemTag, CompletionParams, CompletionRegistrationOptions, CompletionRequest, CompletionResolveRequest, DocumentSelector, InsertTextFormat, InsertTextMode, MarkupKind, RegistrationType, ServerCapabilities } from "vscode-languageserver-protocol";
+import { ClientCapabilities, CompletionItem, CompletionItemTag, CompletionParams, CompletionRegistrationOptions, CompletionRequest, CompletionResolveRequest, InsertTextMode, MarkupKind, RegistrationType } from "vscode-languageserver-protocol";
 import { LanguageClient } from "../client";
 import { RunnableDynamicFeature, ensure } from "./features";
 
@@ -31,9 +31,6 @@ export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionPar
       preselectSupport: true,
       tagSupport: { valueSet: [CompletionItemTag.Deprecated] },
       insertReplaceSupport: false,
-      resolveSupport: {
-        properties: ['documentation', 'detail', 'additionalTextEdits']
-      },
       insertTextModeSupport: { valueSet: [InsertTextMode.asIs, InsertTextMode.adjustIndentation] },
       labelDetailsSupport: true
     };
@@ -46,15 +43,7 @@ export class CompletionFeature extends RunnableDynamicFeature<EmacsCompletionPar
     };
   }
 
-  public initialize(capabilities: ServerCapabilities<any>, documentSelector: DocumentSelector | undefined): void {
-    //
-  }
-
-  public createParams(params: EmacsCompletionParams): CompletionParams {
-    return params;
-  }
-
-  public async runWith(params: CompletionParams) {
+  public async runWith(params: EmacsCompletionParams) {
     labelCompletionMap.clear();
     const { prefix } = params as EmacsCompletionParams;
 
@@ -101,11 +90,9 @@ export class CompletionItemResolveFeature extends RunnableDynamicFeature<Complet
   }
 
   public fillClientCapabilities(capabilities: ClientCapabilities): void {
-    //
-  }
-
-  public initialize(capabilities: ServerCapabilities<any>, documentSelector: DocumentSelector | undefined): void {
-    //
+    ensure(ensure(ensure(capabilities, 'textDocument')!, 'completion')!, 'completionItem')!.resolveSupport = {
+      properties: ['documentation', 'detail', 'additionalTextEdits']
+    };
   }
 
   public createParams(params: CompletionItem): CompletionItem {

@@ -84,6 +84,9 @@ Setting this to nil or 0 will turn off the indicator."
 (defvar lsp-rocks--recent-requests (make-hash-table :test 'equal :size 32)
   "LSP-Rocks websocket connection.")
 
+(defvar lsp-rocks--xref-callback nil
+  "XREF callback.")
+
 (defvar lsp-rocks--company-callback nil
   "Company callback.")
 
@@ -396,10 +399,16 @@ File paths with spaces are only supported inside strings."
 ;;; websocket request functions
 (defun lsp-rocks--did-open ()
   (lsp-rocks--request "textDocument/didOpen"
-                      (list :uri (lsp-rocks--current-file-uri)
-                            :languageId (string-replace "-mode" "" (symbol-name major-mode))
-                            :version 0
-                            :text (buffer-substring-no-properties (point-min) (point-max)))))
+                      (list :textDocument
+                            (list :uri (lsp-rocks--current-file-uri)
+                                  :languageId (string-replace "-mode" "" (symbol-name major-mode))
+                                  :version 0
+                                  :text (buffer-substring-no-properties (point-min) (point-max))))))
+
+(defun lsp-rocks--did-close ()
+  (lsp-rocks--request "textDocument/didClose"
+                      (list :textDocument
+                            (list :uri (lsp-rocks--current-file-uri)))))
 
 (defun lsp-rocks--did-change (begin end len)
   (lsp-rocks--request "textDocument/didChange"
@@ -411,17 +420,26 @@ File paths with spaces are only supported inside strings."
                                    :rangeLength len
                                    :text (buffer-substring-no-properties begin end))))))
 
+(defun lsp-rocks--will-save ()
+  "Send textDocument/willSave Notification."
+  (lsp-rocks--request "textDocument/willSave"
+                      (list :textDocument (list :uri (lsp-rocks--current-file-uri))
+                            ;; 1 Manual, 2 AfterDelay, 3 FocusOut
+                            :reason 1)))
+
+(defun lsp-rocks--did-save ()
+  (lsp-rocks--request "textDocument/didSave"
+                      (list :textDocument (list :uri (lsp-rocks--current-file-uri))
+                            :text (buffer-substring-no-properties (point-min) (point-max)))))
+
 (defun lsp-rocks--completion (prefix)
   (lsp-rocks--request "textDocument/completion"
                       (list :prefix prefix
-                            :textDocument
-                            (list :uri (lsp-rocks--current-file-uri))
-                            :position
-                            (lsp-rocks--position)
-                            :context
-                            (if (member prefix lsp-rocks--trigger-characters)
-                                (list :triggerKind 2 :triggerCharacter prefix)
-                              (list :triggerKind 1)))))
+                            :textDocument (list :uri (lsp-rocks--current-file-uri))
+                            :position (lsp-rocks--position)
+                            :context (if (member prefix lsp-rocks--trigger-characters)
+                                         (list :triggerKind 2 :triggerCharacter prefix)
+                                       (list :triggerKind 1)))))
 
 (defun lsp-rocks--resolve (label)
   (lsp-rocks--request "completionItem/resolve"
@@ -635,14 +653,6 @@ Doubles as an indicator of snippet support."
 (defun lsp-rocks--current-file-uri ()
   (concat "file://" (buffer-file-name)))
 
-(defun lsp-rocks--monitor-before-change (begin end)
-  (setq-local lsp-rocks--before-change-begin-pos (lsp-rocks--point-position begin))
-  (setq-local lsp-rocks--before-change-end-pos (lsp-rocks--point-position end)))
-
-(defun lsp-rocks--monitor-after-change (begin end len)
-  (setq lsp-rocks--current-file-version (1+ lsp-rocks--current-file-version))
-  (lsp-rocks--did-change begin end len))
-
 (defun lsp-rocks--point-position (pos)
   "Get position of POS."
   (save-excursion
@@ -684,9 +694,34 @@ Doubles as an indicator of snippet support."
 ;;     (before-revert-hook . lsp-rocks-close-buffer-file)
 ;;     ))
 
+(defun lsp-rocks--before-change (begin end)
+  (setq-local lsp-rocks--before-change-begin-pos (lsp-rocks--point-position begin))
+  (setq-local lsp-rocks--before-change-end-pos (lsp-rocks--point-position end)))
+
+(defun lsp-rocks--after-change (begin end len)
+  (setq lsp-rocks--current-file-version (1+ lsp-rocks--current-file-version))
+  (lsp-rocks--did-change begin end len))
+
+(defun lsp-rocks--before-revert-hook ()
+  (lsp-rocks--did-close))
+
+(defun lsp-rocks--after-revert-hook ()
+  (lsp-rocks--did-open))
+
+(defun lsp-rocks--before-save-hook ()
+  (lsp-rocks--will-save))
+
+(defun lsp-rocks--after-save-hook ()
+  (lsp-rocks--did-save))
+
 (defconst lsp-rocks--internal-hooks
-  '((before-change-functions . lsp-rocks--monitor-before-change)
-    (after-change-functions . lsp-rocks--monitor-after-change)))
+  '((before-change-functions . lsp-rocks--before-change)
+    (after-change-functions . lsp-rocks--after-change)
+    (before-revert-hook . lsp-rocks--before-revert-hook)
+    (after-revert-hook . lsp-rocks--after-revert-hook)
+    (xref-backend-functions . lsp-rocks--xref-backend)
+    (before-save-hook . lsp-rocks--before-save-hook)
+    (after-save-hook . lsp-rocks--after-save-hook)))
 
 (defun lsp-rocks--enable ()
   (unless lsp-rocks--server-process

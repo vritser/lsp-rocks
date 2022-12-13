@@ -70,7 +70,9 @@ export namespace DynamicFeature {
 
 export abstract class RunnableDynamicFeature<R, P, A, RO> implements DynamicFeature<RO> {
 
-  protected abstract createParams(params: R): P;
+  protected createParams(params: R): P {
+    return params as unknown as P;
+  }
 
   protected abstract runWith(params: P): A;
 
@@ -80,7 +82,9 @@ export abstract class RunnableDynamicFeature<R, P, A, RO> implements DynamicFeat
 
   // Repeat from interface.
   public abstract fillClientCapabilities(capabilities: ClientCapabilities): void;
-  public abstract initialize(capabilities: ServerCapabilities, documentSelector: DocumentSelector | undefined): void;
+  public initialize(capabilities: ServerCapabilities, documentSelector: DocumentSelector | undefined): void {
+    // default impl
+  }
   public abstract registrationType: RegistrationType<RO>;
 }
 

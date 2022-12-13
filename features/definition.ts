@@ -1,4 +1,4 @@
-import { ClientCapabilities, ServerCapabilities, DocumentSelector, RegistrationType, DefinitionParams, DefinitionRegistrationOptions, DefinitionRequest, Location, LocationLink } from "vscode-languageserver-protocol";
+import { ClientCapabilities, RegistrationType, DefinitionParams, DefinitionRegistrationOptions, DefinitionRequest, Location, LocationLink } from "vscode-languageserver-protocol";
 import { LanguageClient } from "../client";
 import { RunnableDynamicFeature, ensure } from "./features";
 import { fileURLToPath } from 'node:url'
@@ -13,14 +13,6 @@ export class DefinitionFeature extends RunnableDynamicFeature<DefinitionParams, 
     const definitionSupport = ensure(ensure(capabilities, 'textDocument')!, 'definition')!;
     definitionSupport.dynamicRegistration = true;
     definitionSupport.linkSupport = true;
-  }
-
-  public initialize(capabilities: ServerCapabilities<any>, documentSelector: DocumentSelector | undefined): void {
-    //
-  }
-
-  public createParams(params: DefinitionParams): DefinitionParams {
-    return params;
   }
 
   public async runWith(params: DefinitionParams): Promise<Location[]> {
