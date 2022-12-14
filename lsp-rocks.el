@@ -55,6 +55,14 @@
   ""
   :group 'lsp-rocks)
 
+(defvar lsp-rocks--uri-file-prefix (pcase system-type
+                               (`windows-nt "file:///")
+                               (_ "file://"))
+  "Prefix for a file-uri.")
+
+(defvar-local lsp-rocks-buffer-uri nil
+  "If set, return it instead of calculating it using `buffer-file-name'.")
+
 (defcustom lsp-rocks-mark-ring-max-size 16
   "Maximum size of lsp-rocks mark ring.  \
 Start discarding off end if gets this big."
@@ -158,6 +166,20 @@ Setting this to nil or 0 will turn off the indicator."
 (defun lsp-rocks--get-websocket-client ()
   "Get current websocket client from `lsp-rocks--websocket-clients'."
   (gethash (lsp-rocks--websocket-client-key) lsp-rocks--websocket-clients))
+
+(defun lsp-rocks--buffer-uri ()
+  "Return URI of the current buffer."
+  (or lsp-rocks-buffer-uri (lsp-rocks--path-to-uri buffer-file-name)))
+
+(defconst lsp-rocks--url-path-allowed-chars
+  (url--allowed-chars (append '(?/) url-unreserved-chars))
+  "`url-unreserved-chars' with additional delim ?/.
+This set of allowed chars is enough for hexifying local file paths.")
+
+(defun lsp-rocks--path-to-uri (path)
+  "Convert PATH to a uri."
+  (concat lsp-rocks--uri-file-prefix
+          (url-hexify-string (file-truename path) lsp-rocks--url-path-allowed-chars)))
 
 (defun lsp-rocks--buffer-language-conf ()
   "Get language corresponding current buffer."
@@ -400,7 +422,7 @@ File paths with spaces are only supported inside strings."
 (defun lsp-rocks--did-open ()
   (lsp-rocks--request "textDocument/didOpen"
                       (list :textDocument
-                            (list :uri (lsp-rocks--current-file-uri)
+                            (list :uri (lsp-rocks--buffer-uri)
                                   :languageId (string-replace "-mode" "" (symbol-name major-mode))
                                   :version 0
                                   :text (buffer-substring-no-properties (point-min) (point-max))))))
@@ -408,12 +430,12 @@ File paths with spaces are only supported inside strings."
 (defun lsp-rocks--did-close ()
   (lsp-rocks--request "textDocument/didClose"
                       (list :textDocument
-                            (list :uri (lsp-rocks--current-file-uri)))))
+                            (list :uri (lsp-rocks--buffer-uri)))))
 
 (defun lsp-rocks--did-change (begin end len)
   (lsp-rocks--request "textDocument/didChange"
                       (list :textDocument
-                            (list :uri (lsp-rocks--current-file-uri) :version lsp-rocks--current-file-version)
+                            (list :uri (lsp-rocks--buffer-uri) :version lsp-rocks--current-file-version)
                             :contentChanges
                             (vector
                              (list :range (list :start lsp-rocks--before-change-begin-pos :end lsp-rocks--before-change-end-pos)
@@ -423,19 +445,19 @@ File paths with spaces are only supported inside strings."
 (defun lsp-rocks--will-save ()
   "Send textDocument/willSave Notification."
   (lsp-rocks--request "textDocument/willSave"
-                      (list :textDocument (list :uri (lsp-rocks--current-file-uri))
+                      (list :textDocument (list :uri (lsp-rocks--buffer-uri))
                             ;; 1 Manual, 2 AfterDelay, 3 FocusOut
                             :reason 1)))
 
 (defun lsp-rocks--did-save ()
   (lsp-rocks--request "textDocument/didSave"
-                      (list :textDocument (list :uri (lsp-rocks--current-file-uri))
+                      (list :textDocument (list :uri (lsp-rocks--buffer-uri))
                             :text (buffer-substring-no-properties (point-min) (point-max)))))
 
 (defun lsp-rocks--completion (prefix)
   (lsp-rocks--request "textDocument/completion"
                       (list :prefix prefix
-                            :textDocument (list :uri (lsp-rocks--current-file-uri))
+                            :textDocument (list :uri (lsp-rocks--buffer-uri))
                             :position (lsp-rocks--position)
                             :context (if (member prefix lsp-rocks--trigger-characters)
                                          (list :triggerKind 2 :triggerCharacter prefix)
@@ -450,7 +472,7 @@ File paths with spaces are only supported inside strings."
   (interactive)
   (lsp-rocks--request "textDocument/definition"
                       (list :textDocument
-                            (list :uri (lsp-rocks--current-file-uri))
+                            (list :uri (lsp-rocks--buffer-uri))
                             :position
                             (lsp-rocks--position))))
 
@@ -482,7 +504,7 @@ File paths with spaces are only supported inside strings."
   (interactive)
   (lsp-rocks--request "textDocument/declaration"
                       (list :textDocument
-                            (list :uri (lsp-rocks--current-file-uri))
+                            (list :uri (lsp-rocks--buffer-uri))
                             :position
                             (lsp-rocks--position))))
 
@@ -493,7 +515,7 @@ File paths with spaces are only supported inside strings."
   (interactive)
   (lsp-rocks--request "textDocument/references"
                       (list :textDocument
-                            (list :uri (lsp-rocks--current-file-uri))
+                            (list :uri (lsp-rocks--buffer-uri))
                             :position
                             (lsp-rocks--position)
                             :context
@@ -650,9 +672,6 @@ Doubles as an indicator of snippet support."
    (lsp-rocks--json-stringify
     (list :id id :cmd cmd :data data))))
 
-(defun lsp-rocks--current-file-uri ()
-  (concat "file://" (buffer-file-name)))
-
 (defun lsp-rocks--point-position (pos)
   "Get position of POS."
   (save-excursion
@@ -725,17 +744,17 @@ Doubles as an indicator of snippet support."
 
 (defun lsp-rocks--enable ()
   (unless lsp-rocks--server-process
-    (lsp-rocks--start-server))
+    (lsp-rocks--start-server)
+    (sleep-for 0 200))
 
-  (sleep-for 0 300)
   (unless (lsp-rocks--get-websocket-client)
     (lsp-rocks--save-websocket-client (lsp-rocks--create-websocket-client
                                        (concat (if lsp-rocks-use-ssl "wss://" "ws://")
-                                               lsp-rocks-server-host ":" lsp-rocks--server-port))))
-  (sleep-for 0 500)
+                                               lsp-rocks-server-host ":" lsp-rocks--server-port)))
+    (sleep-for 0 200))
+  (setq lsp-rocks-buffer-uri (lsp-rocks--buffer-uri))
   (lsp-rocks--did-open)
   (add-to-list 'company-backends 'company-lsp-rocks)
-  (add-hook 'xref-backend-functions 'lsp-rocks--xref-backend nil t)
   (dolist (hook lsp-rocks--internal-hooks)
     (add-hook (car hook) (cdr hook) nil t)))
 
