@@ -21,6 +21,7 @@ import { CompletionFeature, CompletionItemResolveFeature } from './features/comp
 import { DefinitionFeature } from './features/definition';
 import { DeclarationFeature } from './features/declaration';
 import { ReferencesFeature } from './features/reference';
+import { ImplementationFeature } from './features/implementation';
 
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -340,38 +341,40 @@ export class LanguageClient {
         name: this._project.slice(this._project.lastIndexOf('/')),
       }],
     };
+
     this.fillInitializeParams(initParams);
     return this.doInitialize(connection, initParams);
   }
 
   public registerFeature(feature: DynamicFeature<any>): void {
-		this._features.push(feature);
-		if (DynamicFeature.is(feature)) {
-			const registrationType = feature.registrationType;
-			this._dynamicFeatures.set(registrationType.method, feature);
-		}
-	}
+    this._features.push(feature);
+    if (DynamicFeature.is(feature)) {
+      const registrationType = feature.registrationType;
+      this._dynamicFeatures.set(registrationType.method, feature);
+    }
+  }
 
   protected registerBuiltinFeatures() {
-		this.registerFeature(new DidOpenTextDocumentFeature(this));
-		this.registerFeature(new DidCloseTextDocumentFeature(this));
-		this.registerFeature(new DidChangeTextDocumentFeature(this));
-		this.registerFeature(new WillSaveTextDocumentFeature(this));
-		this.registerFeature(new DidSaveTextDocumentFeature(this));
+    this.registerFeature(new DidOpenTextDocumentFeature(this));
+    this.registerFeature(new DidCloseTextDocumentFeature(this));
+    this.registerFeature(new DidChangeTextDocumentFeature(this));
+    this.registerFeature(new WillSaveTextDocumentFeature(this));
+    this.registerFeature(new DidSaveTextDocumentFeature(this));
     this.registerFeature(new CompletionFeature(this));
     this.registerFeature(new CompletionItemResolveFeature(this));
     this.registerFeature(new DefinitionFeature(this));
     this.registerFeature(new DeclarationFeature(this));
     this.registerFeature(new ReferencesFeature(this));
+    this.registerFeature(new ImplementationFeature(this));
   }
 
   protected fillInitializeParams(params: InitializeParams): void {
-		for (const feature of this._features) {
-			if (Is.func(feature.fillInitializeParams)) {
-				feature.fillInitializeParams(params);
-			}
-		}
-	}
+    for (const feature of this._features) {
+      if (Is.func(feature.fillInitializeParams)) {
+        feature.fillInitializeParams(params);
+      }
+    }
+  }
 
   private computeClientCapabilities(): ClientCapabilities {
     const result: ClientCapabilities = {};

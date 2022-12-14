@@ -60,6 +60,19 @@ current project's main and external roots."
       (xref--project-root pr)
       (project-external-roots pr)))))
 
+(cl-defgeneric xref-backend-implementations (backend identifier callback)
+  "Find implementations of IDENTIFIER.
+The result must be a list of xref objects.  If there are multiple possible
+implementations, return all of them.  If no implementations can be found,
+return nil.
+
+IDENTIFIER can be any string returned by
+`xref-backend-identifier-at-point', or from the table returned by
+`xref-backend-identifier-completion-table'.
+
+To create an xref object, call `xref-make'.")
+
+
 (defun xref--show-xref-buffer (xrefs alist)
   (let* ((_xrefs
           (or
@@ -108,18 +121,6 @@ When only one definition found, jump to it right away instead."
              (display-action . ,display-action)
              (auto-jump . ,xref-auto-jump-to-first-definition))))
 
-(defun xref--find-xrefs (input kind arg display-action)
-  (let ((callback (lambda (display-action xrefs)
-                    (xref--show-xrefs xrefs display-action))))
-    (xref--create-fetcher input kind arg
-                          (apply-partially callback display-action))))
-
-(defun xref--find-definitions (id display-action)
-  (let ((callback (lambda (display-action xrefs)
-                    (xref--show-defs xrefs display-action))))
-    (xref--create-fetcher id 'definitions id
-                          (apply-partially callback display-action))))
-
 (defun xref--create-fetcher (input kind arg callback)
   "Return an xref list fetcher function.
 
@@ -142,6 +143,29 @@ the xref backend method indicated by KIND and passes ARG to it."
       (if (member (symbol-name backend) '("elisp" "etags"))
           (funcall callback (funcall method backend arg))
         (funcall method backend arg callback)))))
+
+(defun xref--find-xrefs (input kind arg display-action)
+  (let ((callback (lambda (display-action xrefs)
+                    (xref--show-xrefs xrefs display-action))))
+    (xref--create-fetcher input kind arg
+                          (apply-partially callback display-action))))
+
+(defun xref--find-definitions (id display-action)
+  (let ((callback (lambda (display-action xrefs)
+                    (xref--show-defs xrefs display-action))))
+    (xref--create-fetcher id 'definitions id
+                          (apply-partially callback display-action))))
+
+;;;###autoload
+(defun xref-find-implementations (identifier)
+  "Find implementations to the identifier at point.
+This command might prompt for the identifier as needed, perhaps
+offering the symbol at point as the default.
+With prefix argument, or if `xref-prompt-for-identifier' is t,
+always prompt for the identifier.  If `xref-prompt-for-identifier'
+is nil, prompt only if there's no usable symbol at point."
+  (interactive (list (xref--read-identifier "Find references of: ")))
+  (xref--find-xrefs identifier 'implementations identifier nil))
 
 (provide 'lsp-rocks-xref)
 

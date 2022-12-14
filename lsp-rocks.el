@@ -217,6 +217,7 @@ This set of allowed chars is enough for hexifying local file paths.")
         ("textDocument/definition" (lsp-rocks--process-find-definition data))
         ("textDocument/declaration" (lsp-rocks--process-find-definition data))
         ("textDocument/references" (lsp-rocks--process-find-definition data))
+        ("textDocument/implementation" (lsp-rocks--process-find-definition data))
         ))))
 
 (defun lsp-rocks--create-websocket-client (url)
@@ -514,9 +515,20 @@ File paths with spaces are only supported inside strings."
 (defalias 'lsp-rocks-find-declaration-return #'lsp-rocks-find-definition-return)
 
 (defun lsp-rocks-find-references ()
-  "Find definition."
+  "Find references."
   (interactive)
   (lsp-rocks--request "textDocument/references"
+                      (list :textDocument
+                            (list :uri (lsp-rocks--buffer-uri))
+                            :position
+                            (lsp-rocks--position)
+                            :context
+                            (list :includeDeclaration t))))
+
+(defun lsp-rocks-find-implementations ()
+  "Find implementations."
+  (interactive)
+  (lsp-rocks--request "textDocument/implementation"
                       (list :textDocument
                             (list :uri (lsp-rocks--buffer-uri))
                             :position
@@ -588,7 +600,7 @@ Doubles as an indicator of snippet support."
   (let ((candidate (nth company-selection company-candidates)))
     (put-text-property 0 1 'resolved-item item candidate)))
 
-;;;;;;;;;;;;;;;;;;; xref ;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; xref integration ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun lsp-rocks--xref-backend () "lsp-rocks xref backend." 'xref-lsp-rocks)
 
 (cl-defmethod xref-backend-identifier-at-point ((_backend (eql xref-lsp-rocks)))
@@ -609,22 +621,10 @@ Doubles as an indicator of snippet support."
     (setq lsp-rocks--xref-callback callback)
     (lsp-rocks-find-references)))
 
-;; (defun lsp-rocks--process-find-definition (filepath position)
-;;   ;; Record postion.
-;;   (set-marker (mark-marker) (point) (current-buffer))
-;;   (add-to-history 'lsp-rocks--mark-ring (copy-marker (mark-marker)) lsp-rocks-mark-ring-max-size t)
-
-;;   ;; Jump to define.
-;;   (find-file filepath)
-
-;;   (goto-char (lsp-rocks--lsp-position-to-point position))
-;;   (recenter)
-
-;;   ;; Flash define line.
-;;   (require 'pulse)
-;;   (let ((pulse-iterations 1)
-;;         (pulse-delay lsp-rocks-flash-line-delay))
-;;     (pulse-momentary-highlight-one-line (point) 'lsp-rocks-font-lock-flash)))
+(cl-defmethod xref-backend-implementations ((_backend (eql xref-lsp-rocks)) identifier callback)
+  (save-excursion
+    (setq lsp-rocks--xref-callback callback)
+    (lsp-rocks-find-implementations)))
 
 (defun lsp-rocks--process-find-definition (locations)
   ""
@@ -641,14 +641,14 @@ Doubles as an indicator of snippet support."
                           (save-excursion
                             (save-restriction
                               (widen)
-                              (let* ((beg (lsp-rocks--lsp-position-to-point (list :line (1+ start-line) :character start-column)))
-                                     (end (lsp-rocks--lsp-position-to-point (list :line (1+ end-line) :character end-column)))
+                              (let* ((beg (lsp-rocks--lsp-position-to-point start))
+                                     (end (lsp-rocks--lsp-position-to-point end))
                                      (bol (progn (goto-char beg) (point-at-bol)))
                                      (summary (buffer-substring bol (point-at-eol)))
                                      (hi-beg (- beg bol))
-                                     (hi-end (- (min (point-at-eol) end) bol))
-                                     )
-                                (add-face-text-property hi-beg hi-end 'xref-match t summary)
+                                     (hi-end (- (min (point-at-eol) end) bol)))
+                                (when summary
+                                  (add-face-text-property hi-beg hi-end 'xref-match t summary))
                                 (xref-make summary
                                            (xref-make-file-location filepath (1+ start-line) start-column)))))))
                       locations)))
