@@ -22,6 +22,9 @@ import { DefinitionFeature } from './features/definition';
 import { DeclarationFeature } from './features/declaration';
 import { ReferencesFeature } from './features/reference';
 
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 
 enum ClientState {
   Initial = 'initial',
@@ -322,18 +325,18 @@ export class LanguageClient {
 
   private async initialize(connection: ProtocolConnection, clientInfo: any): Promise<InitializeResult> {
     // May language server need some initialization options.
-    const langserverConfig = `./langserver/${this._language}`;
-    const initializationOptions = fs.existsSync(langserverConfig) ? require(langserverConfig) : {};
+    const langSreverConfig = `./langserver/${this._language}.json`;
+    const initializationOptions = fs.existsSync(path.join(__dirname, langSreverConfig)) ? require(langSreverConfig) : {};
     const initParams: InitializeParams = {
       processId: null,
       clientInfo,
       locale: 'en',
       rootPath: this._project,
-      rootUri: `file://${this._project}`,
+      rootUri: pathToFileURL(this._project).toString(),
       capabilities: this.computeClientCapabilities(),
       initializationOptions,
       workspaceFolders: [{
-        uri: `file://${this._project}`,
+        uri: pathToFileURL(this._project).toString(),
         name: this._project.slice(this._project.lastIndexOf('/')),
       }],
     };

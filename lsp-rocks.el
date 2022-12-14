@@ -267,14 +267,17 @@ This set of allowed chars is enough for hexifying local file paths.")
 (defun lsp-rocks-shutdown ()
   "Shutdown LSP Rocks Server and reset all variables."
   (interactive)
-  (lsp-rocks--kill-server-process))
+  (lsp-rocks--kill-server-process)
+  (setq lsp-rocks-mode nil))
 
 (defun lsp-rocks--kill-server-process ()
   "Kill LSP-Rocks server process."
   (when (get-buffer lsp-rocks-name)
     (dolist (client (hash-table-values lsp-rocks--websocket-clients))
-      (websocket-close client))
-    (kill-process lsp-rocks--server-process)
+      (when (eq (websocket-ready-state client) 'open)
+        (websocket-close client)))
+    (when (process-live-p lsp-rocks--server-process)
+      (kill-process lsp-rocks--server-process))
     (kill-buffer lsp-rocks-name)
     (setq lsp-rocks--server-process nil
           lsp-rocks--server-port nil
@@ -582,7 +585,6 @@ Doubles as an indicator of snippet support."
 
 (defun lsp-rocks--process-completion-resolve (item)
   "Process LSP resolved completion ITEM."
-  (message "idx: %s, label: %s" company-selection (nth company-selection company-candidates))
   (let ((candidate (nth company-selection company-candidates)))
     (put-text-property 0 1 'resolved-item item candidate)))
 
@@ -658,13 +660,16 @@ Doubles as an indicator of snippet support."
   (json-serialize object :null-object nil))
 
 (defun lsp-rocks--request (cmd &optional params)
-  (let ((id (lsp-rocks--request-id)))
-    ;; save the last request for the CMD
-    (puthash cmd id lsp-rocks--recent-requests)
-    (websocket-send-text
-     (lsp-rocks--get-websocket-client)
-     (lsp-rocks--json-stringify
-      (list :id id  :cmd cmd :params params)))))
+  "Send a websocket message with given CMD and PARAMS."
+  (when-let ((client (lsp-rocks--get-websocket-client))
+             (id (lsp-rocks--request-id)))
+    (when (equal (websocket-ready-state client) 'open)
+      ;; save the last request for the cmd
+      (puthash cmd id lsp-rocks--recent-requests)
+      (websocket-send-text
+       client
+       (lsp-rocks--json-stringify
+        (list :id id  :cmd cmd :params params))))))
 
 (defun lsp-rocks--response (id cmd data)
   (websocket-send-text
@@ -733,25 +738,33 @@ Doubles as an indicator of snippet support."
 (defun lsp-rocks--after-save-hook ()
   (lsp-rocks--did-save))
 
+(defun lsp-rocks--kill-buffer-hook ()
+  (setq lsp-rocks-mode nil)
+  (lsp-rocks--did-close))
+
 (defconst lsp-rocks--internal-hooks
   '((before-change-functions . lsp-rocks--before-change)
     (after-change-functions . lsp-rocks--after-change)
     (before-revert-hook . lsp-rocks--before-revert-hook)
     (after-revert-hook . lsp-rocks--after-revert-hook)
+    (kill-buffer-hook . lsp-rocks--kill-buffer-hook)
     (xref-backend-functions . lsp-rocks--xref-backend)
     (before-save-hook . lsp-rocks--before-save-hook)
     (after-save-hook . lsp-rocks--after-save-hook)))
 
 (defun lsp-rocks--enable ()
   (unless lsp-rocks--server-process
-    (lsp-rocks--start-server)
-    (sleep-for 0 200))
+    (lsp-rocks--start-server))
 
   (unless (lsp-rocks--get-websocket-client)
-    (lsp-rocks--save-websocket-client (lsp-rocks--create-websocket-client
-                                       (concat (if lsp-rocks-use-ssl "wss://" "ws://")
-                                               lsp-rocks-server-host ":" lsp-rocks--server-port)))
-    (sleep-for 0 200))
+    (while (null (lsp-rocks--get-websocket-client))
+      (ignore-errors
+        (lsp-rocks--save-websocket-client
+         (lsp-rocks--create-websocket-client
+          (concat (if lsp-rocks-use-ssl "wss://" "ws://")
+                  lsp-rocks-server-host ":" lsp-rocks--server-port))))
+      (sleep-for 0 20)))
+
   (setq lsp-rocks-buffer-uri (lsp-rocks--buffer-uri))
   (lsp-rocks--did-open)
   (add-to-list 'company-backends 'company-lsp-rocks)
@@ -767,9 +780,9 @@ Doubles as an indicator of snippet support."
 ;;;###autoload
 (define-minor-mode lsp-rocks-mode
   "LSP Rocks mode."
-  :keymap lsp-rocks-mode-map
-  :lighter " LSP/R"
   :init-value nil
+  :lighter " LSP/R"
+  :keymap lsp-rocks-mode-map
   (if lsp-rocks-mode
       (lsp-rocks--enable)
     (lsp-rocks--disable)))
