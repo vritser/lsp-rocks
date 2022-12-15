@@ -395,7 +395,10 @@ CANDIDATE is a string returned by `company-lsp--make-candidate'."
            ;; whole completion, since `insertText' is the full
            ;; completion's text.
            (delete-region (- (point) (length candidate)) (point))
-           (funcall snippet-fn (or insertText label))))
+           (funcall snippet-fn (or insertText label)))
+          (insertText
+           (delete-region (- (point) (length candidate)) (point))
+           (insert insertText)))
     (when (cl-plusp (length additionalTextEdits))
       (lsp-rocks--apply-text-edits additionalTextEdits))))
 
