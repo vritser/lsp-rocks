@@ -25,6 +25,7 @@ import { ImplementationFeature } from './features/implementation';
 
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { TypeDefinitionFeature } from './features/typeDefinition';
 
 
 enum ClientState {
@@ -363,6 +364,7 @@ export class LanguageClient {
     this.registerFeature(new CompletionFeature(this));
     this.registerFeature(new CompletionItemResolveFeature(this));
     this.registerFeature(new DefinitionFeature(this));
+    this.registerFeature(new TypeDefinitionFeature(this));
     this.registerFeature(new DeclarationFeature(this));
     this.registerFeature(new ReferencesFeature(this));
     this.registerFeature(new ImplementationFeature(this));

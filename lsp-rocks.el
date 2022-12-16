@@ -215,6 +215,7 @@ This set of allowed chars is enough for hexifying local file paths.")
         ("textDocument/completion" (funcall lsp-rocks--company-callback (lsp-rocks--parse-completion data)))
         ("completionItem/resolve" (lsp-rocks--process-completion-resolve data))
         ("textDocument/definition" (lsp-rocks--process-find-definition data))
+        ("textDocument/typeDefinition" (lsp-rocks--process-find-definition data))
         ("textDocument/declaration" (lsp-rocks--process-find-definition data))
         ("textDocument/references" (lsp-rocks--process-find-definition data))
         ("textDocument/implementation" (lsp-rocks--process-find-definition data))
@@ -506,6 +507,15 @@ File paths with spaces are only supported inside strings."
     (unless (equal buffer this-buffer)
       (switch-to-buffer buffer))))
 
+(defun lsp-rocks-find-type-definition ()
+  "Find type definition."
+  (interactive)
+  (lsp-rocks--request "textDocument/typeDefinition"
+                      (list :textDocument
+                            (list :uri (lsp-rocks--buffer-uri))
+                            :position
+                            (lsp-rocks--position))))
+
 (defun lsp-rocks-find-declaration ()
   "Find declaration."
   (interactive)
@@ -628,6 +638,11 @@ Doubles as an indicator of snippet support."
   (save-excursion
     (setq lsp-rocks--xref-callback callback)
     (lsp-rocks-find-implementations)))
+
+(cl-defmethod xref-backend-type-definitions ((_backend (eql xref-lsp-rocks)) identifier callback)
+  (save-excursion
+    (setq lsp-rocks--xref-callback callback)
+    (lsp-rocks-find-type-definition)))
 
 (defun lsp-rocks--process-find-definition (locations)
   ""

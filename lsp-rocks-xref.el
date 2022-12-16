@@ -72,6 +72,18 @@ IDENTIFIER can be any string returned by
 
 To create an xref object, call `xref-make'.")
 
+(cl-defgeneric xref-backend-type-definitions (backend identifier callback)
+  "Find implementations of IDENTIFIER.
+The result must be a list of xref objects.  If there are multiple possible
+implementations, return all of them.  If no implementations can be found,
+return nil.
+
+IDENTIFIER can be any string returned by
+`xref-backend-identifier-at-point', or from the table returned by
+`xref-backend-identifier-completion-table'.
+
+To create an xref object, call `xref-make'.")
+
 
 (defun xref--show-xref-buffer (xrefs alist)
   (let* ((_xrefs
@@ -164,8 +176,19 @@ offering the symbol at point as the default.
 With prefix argument, or if `xref-prompt-for-identifier' is t,
 always prompt for the identifier.  If `xref-prompt-for-identifier'
 is nil, prompt only if there's no usable symbol at point."
-  (interactive (list (xref--read-identifier "Find references of: ")))
+  (interactive (list (xref--read-identifier "Find implementations of: ")))
   (xref--find-xrefs identifier 'implementations identifier nil))
+
+;;;###autoload
+(defun xref-find-type-definitions (identifier)
+  "Find implementations to the identifier at point.
+This command might prompt for the identifier as needed, perhaps
+offering the symbol at point as the default.
+With prefix argument, or if `xref-prompt-for-identifier' is t,
+always prompt for the identifier.  If `xref-prompt-for-identifier'
+is nil, prompt only if there's no usable symbol at point."
+  (interactive (list (xref--read-identifier "Find type definitions of: ")))
+  (xref--find-xrefs identifier 'type-definitions identifier nil))
 
 (provide 'lsp-rocks-xref)
 
