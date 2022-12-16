@@ -30,6 +30,8 @@
 (require 'subr-x)
 (require 'websocket)
 (require 'lsp-rocks-xref)
+(require 'posframe)
+(require 'markdown-mode)
 
 (defgroup lsp-rocks nil
   "LSP-Rocks group."
@@ -219,6 +221,7 @@ This set of allowed chars is enough for hexifying local file paths.")
         ("textDocument/declaration" (lsp-rocks--process-find-definition data))
         ("textDocument/references" (lsp-rocks--process-find-definition data))
         ("textDocument/implementation" (lsp-rocks--process-find-definition data))
+        ("textDocument/hover" (lsp-rocks--process-hover data))
         ))))
 
 (defun lsp-rocks--create-websocket-client (url)
@@ -549,6 +552,15 @@ File paths with spaces are only supported inside strings."
                             :context
                             (list :includeDeclaration t))))
 
+(defun lsp-rocks-describe-thing-at-point ()
+  "Display the type signature and documentation of the thing at point."
+  (interactive)
+  (lsp-rocks--request "textDocument/hover"
+                      (list :textDocument
+                            (list :uri (lsp-rocks--buffer-uri))
+                            :position
+                            (lsp-rocks--position))))
+
 (defun lsp-rocks--candidate-kind (item)
   "Return ITEM's kind."
   (alist-get (get-text-property 0 'kind item)
@@ -670,6 +682,47 @@ Doubles as an indicator of snippet support."
                                 (xref-make summary
                                            (xref-make-file-location filepath (1+ start-line) start-column)))))))
                       locations)))
+
+
+(defface lsp-rocks-hover-posframe
+  '((t :inherit tooltip))
+  "Background and foreground for `lsp-rocks-hover-posframe'."
+  :group 'lsp-mode)
+
+(defun lsp-rocks--markdown-render ()
+  (when (fboundp 'gfm-view-mode)
+    (let ((inhibit-message t))
+      (setq-local markdown-fontify-code-blocks-natively t)
+      (set-face-background 'markdown-code-face (face-attribute 'lsp-rocks-hover-posframe :background nil t))
+      (set-face-attribute 'markdown-code-face nil :height 130)
+      (gfm-view-mode)))
+  (read-only-mode 0)
+  (prettify-symbols-mode 1)
+  (display-line-numbers-mode -1)
+  (font-lock-ensure)
+
+  (setq-local mode-line-format nil))
+
+(defun lsp-rocks--process-hover (data)
+  "Use posframe to show the DATA hoverHelp string."
+  (let ((lsp-help-buf-name " *lsp-rocks-help*"))
+    (with-current-buffer (get-buffer-create lsp-help-buf-name)
+      (erase-buffer)
+      (insert data)
+      (lsp-rocks--markdown-render))
+
+    (when (posframe-workable-p)
+      (posframe-show lsp-help-buf-name
+                     :position (point)
+                     :internal-border-width 10
+                     :background-color (face-attribute 'lsp-rocks-hover-posframe :background nil t)
+                     :foreground-color (face-attribute 'lsp-rocks-hover-posframe :foreground nil t)
+                     :accept-focus nil
+                     :max-width 150
+                     :max-height 20)
+      (clear-this-command-keys)
+      (push (read-event) unread-command-events)
+      (posframe-hide lsp-help-buf-name))))
 
 (defun lsp-rocks--json-parse (json)
   (json-parse-string json :object-type 'plist :array-type 'list))
