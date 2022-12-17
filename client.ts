@@ -27,6 +27,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { TypeDefinitionFeature } from './features/typeDefinition';
 import { HoverFeature } from './features/hover';
+import { SignatureHelpFeature } from './features/signatureHelp';
 
 
 enum ClientState {
@@ -370,6 +371,7 @@ export class LanguageClient {
     this.registerFeature(new ReferencesFeature(this));
     this.registerFeature(new ImplementationFeature(this));
     this.registerFeature(new HoverFeature(this));
+    this.registerFeature(new SignatureHelpFeature(this));
   }
 
   protected fillInitializeParams(params: InitializeParams): void {

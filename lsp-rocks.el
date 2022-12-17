@@ -222,6 +222,7 @@ This set of allowed chars is enough for hexifying local file paths.")
         ("textDocument/references" (lsp-rocks--process-find-definition data))
         ("textDocument/implementation" (lsp-rocks--process-find-definition data))
         ("textDocument/hover" (lsp-rocks--process-hover data))
+        ("textDocument/signatureHelp" (lsp-rocks--process-signature-help data))
         ))))
 
 (defun lsp-rocks--create-websocket-client (url)
@@ -561,6 +562,18 @@ File paths with spaces are only supported inside strings."
                             :position
                             (lsp-rocks--position))))
 
+(defun lsp-rocks-signature-help ()
+  "Display the type signature and documentation of the thing at point."
+  (interactive)
+  (lsp-rocks--request "textDocument/signatureHelp"
+                      (list :textDocument
+                            (list :uri (lsp-rocks--buffer-uri))
+                            :position
+                            (lsp-rocks--position)
+                            :context
+                            (list :triggerKind 1
+                                  :isRetrigger :false))))
+
 (defun lsp-rocks--candidate-kind (item)
   "Return ITEM's kind."
   (alist-get (get-text-property 0 'kind item)
@@ -723,6 +736,33 @@ Doubles as an indicator of snippet support."
       (clear-this-command-keys)
       (push (read-event) unread-command-events)
       (posframe-hide lsp-help-buf-name))))
+
+(defun lsp-rocks--process-signature-help (data)
+  "Process signatureHelp response."
+  (let* ((signatures (plist-get data :signatures))
+         (activeSignature (plist-get data :activeSignature))
+         ;; (activeParameter (plist-get data :activeParameter))
+         (labels (mapcar (lambda (it)
+                           (plist-get it :label))
+                         signatures)))
+    (let ((lsp-help-buf-name " *lsp-rocks-signature*"))
+      (with-current-buffer (get-buffer-create lsp-help-buf-name)
+        (erase-buffer)
+        (insert (nth activeSignature labels))
+        (lsp-rocks--markdown-render))
+
+      (when (posframe-workable-p)
+        (posframe-show lsp-help-buf-name
+                       :position (point)
+                       :internal-border-width 10
+                       :background-color (face-attribute 'lsp-rocks-hover-posframe :background nil t)
+                       :foreground-color (face-attribute 'lsp-rocks-hover-posframe :foreground nil t)
+                       :accept-focus nil
+                       :max-width 60
+                       :max-height 20)
+        (clear-this-command-keys)
+        (push (read-event) unread-command-events)
+        (posframe-hide lsp-help-buf-name)))))
 
 (defun lsp-rocks--json-parse (json)
   (json-parse-string json :object-type 'plist :array-type 'list))
