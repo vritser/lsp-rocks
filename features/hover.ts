@@ -11,44 +11,60 @@ export class HoverFeature extends RunnableDynamicFeature<HoverParams, HoverParam
   }
 
   public fillClientCapabilities(capabilities: ClientCapabilities): void {
-    const hoverCapability = (ensure(ensure(capabilities, 'textDocument')!, 'hover')!);
-    hoverCapability.dynamicRegistration = true;
-    hoverCapability.contentFormat = [MarkupKind.Markdown, MarkupKind.PlainText];
+    const hoverSupport = (ensure(ensure(capabilities, 'textDocument')!, 'hover')!);
+    hoverSupport.dynamicRegistration = true;
+    hoverSupport.contentFormat = [MarkupKind.Markdown, MarkupKind.PlainText];
   }
 
   public async runWith(params: HoverParams): Promise<string | null> {
     const resp = await this.client.sendRequest(HoverRequest.type, params);
     if (resp == null) return null;
 
-    return this.parseHoverContens(resp, []);
+    return this.parseHoverContens(resp.contents, []);
   }
 
-  private parseHoverContens(hover: Hover, result: string[]) {
-    const { contents } = hover;
+  private parseHoverContens(contents: MarkupContent | MarkedString | MarkedString[], result: string[]) {
     if (MarkedString.is(contents)) {
       if (typeof contents == 'string') {
         if (contents.startsWith('```'))
-          result.push(contents.trim());
+          result.push(contents);
         else
-          result.push(this.codeBlockFor('text', contents.trim()));
+          result.push(contents);
       } else {
-        result.push(this.codeBlockFor(contents.language, contents.value.trim()));
+        result.push(this.codeBlockFor(contents.language, contents.value));
       }
     } else if (MarkupContent.is(contents)) {
       result.push(
         contents.kind == MarkupKind.Markdown
-          ? contents.value.trim()
-          : this.codeBlockFor('text', contents.value.trim())
+          ? contents.value.trimStart()
+          : this.codeBlockFor('text', contents.value)
       );
     } else {
-      for (const it of contents) {
-        this.parseHoverContens(it as unknown as Hover, result);
-      }
+      result.push(this.parseMarkedStringArray(contents));
     }
 
     return result.join('\n');
   }
 
+  private parseMarkedStringArray(contents: MarkedString[]) {
+    const ret: string[] = [];
+    for (const it of contents) {
+      if (typeof it == 'string') {
+        ret.push(it);
+      } else {
+        ret.push(this.codeBlockFor(it.language, it.value));
+        ret.push('___');
+      }
+    }
+    return ret.join('\n');
+  }
+
+  /**
+   * Make a markdown code block
+   * @param language language of the code block
+   * @param content content of the code block
+   * @returns a code block string
+   */
   private codeBlockFor(language: string, content: string) {
     return `${this.markup} ${language}
     ${content}
