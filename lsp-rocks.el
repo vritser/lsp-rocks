@@ -562,17 +562,22 @@ File paths with spaces are only supported inside strings."
                             :position
                             (lsp-rocks--position))))
 
-(defun lsp-rocks-signature-help ()
-  "Display the type signature and documentation of the thing at point."
-  (interactive)
+(defun lsp-rocks--signature-help (isRetrigger kind triggerCharacter)
+  "Send signatureHelp request with params."
   (lsp-rocks--request "textDocument/signatureHelp"
                       (list :textDocument
                             (list :uri (lsp-rocks--buffer-uri))
                             :position
                             (lsp-rocks--position)
                             :context
-                            (list :triggerKind 1
-                                  :isRetrigger :false))))
+                            (list :triggerKind kind
+                                  :triggerCharacter triggerCharacter
+                                  :isRetrigger isRetrigger))))
+
+(defun lsp-rocks-signature-help ()
+  "Display the type signature and documentation of the thing at point."
+  (interactive)
+  (lsp-rocks--signature-help :false 1 nil))
 
 (defun lsp-rocks--candidate-kind (item)
   "Return ITEM's kind."
@@ -696,11 +701,20 @@ Doubles as an indicator of snippet support."
                                            (xref-make-file-location filepath (1+ start-line) start-column)))))))
                       locations)))
 
-
 (defface lsp-rocks-hover-posframe
   '((t :inherit tooltip))
   "Background and foreground for `lsp-rocks-hover-posframe'."
   :group 'lsp-mode)
+
+(defcustom lsp-rocks-hover-buffer " *lsp-rocks-help*"
+  "Buffer for display hover info."
+  :type 'string
+  :group 'lsp-rocks)
+
+(defcustom lsp-rocks-signature-buffer " *lsp-rocks-signature*"
+  "Buffer for display signature help info."
+  :type 'string
+  :group 'lsp-rocks)
 
 (defun lsp-rocks--markdown-render ()
   (when (fboundp 'gfm-view-mode)
@@ -716,58 +730,61 @@ Doubles as an indicator of snippet support."
 
   (setq-local mode-line-format nil))
 
-(defun lsp-rocks--process-hover (data)
-  "Use posframe to show the DATA hoverHelp string."
-  (let ((lsp-help-buf-name " *lsp-rocks-help*"))
-    (with-current-buffer (get-buffer-create lsp-help-buf-name)
+(defun lsp-rocks--process-hover (hover-help)
+  "Use posframe to show the HOVER-HELP string."
+  (with-current-buffer (get-buffer-create lsp-rocks-hover-buffer)
+    (erase-buffer)
+    (insert hover-help)
+    (lsp-rocks--markdown-render))
+
+  (when (posframe-workable-p)
+    (posframe-show lsp-rocks-hover-buffer
+                   :max-width 60
+                   :position (point)
+                   :accept-focus nil
+                   :lines-truncate t
+                   :vertical-scroll-bars t
+                   :internal-border-width 10
+                   :poshandler #'posframe-poshandler-point-bottom-left-corner-upward
+                   :background-color (face-attribute 'lsp-rocks-hover-posframe :background nil t)
+                   :foreground-color (face-attribute 'lsp-rocks-hover-posframe :foreground nil t))))
+
+(defun lsp-rocks--process-signature-help (signature-help)
+  "Use posframe to show the SIGNATURE-HELP string."
+  (let* ((signatures (plist-get signature-help :signatures))
+         (activeSignature (plist-get signature-help :activeSignature))
+         (info (mapcar (lambda (it)
+                         (let ((label (plist-get it :label))
+                               (doc (plist-get it :documentation)))
+                           (if doc
+                               (format "%s\n___\n%s" label doc)
+                             label)))
+                       signatures)))
+    (with-current-buffer (get-buffer-create lsp-rocks-signature-buffer)
       (erase-buffer)
-      (insert data)
+      (insert (nth activeSignature info))
       (lsp-rocks--markdown-render))
 
     (when (posframe-workable-p)
-      (posframe-show lsp-help-buf-name
+      (posframe-show lsp-rocks-signature-buffer
+                     :max-width 60
+                     :max-height 20
+                     :lines-truncate t
+                     :horizontal-scroll-bars t
+                     :vertical-scroll-bars t
                      :position (point)
-                     :internal-border-width 10
-                     :background-color (face-attribute 'lsp-rocks-hover-posframe :background nil t)
-                     :foreground-color (face-attribute 'lsp-rocks-hover-posframe :foreground nil t)
                      :accept-focus nil
-                     :max-width 150
-                     :max-height 20)
-      (clear-this-command-keys)
-      (push (read-event) unread-command-events)
-      (posframe-hide lsp-help-buf-name))))
-
-(defun lsp-rocks--process-signature-help (data)
-  "Process signatureHelp response."
-  (let* ((signatures (plist-get data :signatures))
-         (activeSignature (plist-get data :activeSignature))
-         ;; (activeParameter (plist-get data :activeParameter))
-         (labels (mapcar (lambda (it)
-                           (plist-get it :label))
-                         signatures)))
-    (let ((lsp-help-buf-name " *lsp-rocks-signature*"))
-      (with-current-buffer (get-buffer-create lsp-help-buf-name)
-        (erase-buffer)
-        (insert (nth activeSignature labels))
-        (lsp-rocks--markdown-render))
-
-      (when (posframe-workable-p)
-        (posframe-show lsp-help-buf-name
-                       :position (point)
-                       :internal-border-width 10
-                       :background-color (face-attribute 'lsp-rocks-hover-posframe :background nil t)
-                       :foreground-color (face-attribute 'lsp-rocks-hover-posframe :foreground nil t)
-                       :accept-focus nil
-                       :max-width 60
-                       :max-height 20)
-        (clear-this-command-keys)
-        (push (read-event) unread-command-events)
-        (posframe-hide lsp-help-buf-name)))))
+                     :internal-border-width 10
+                     :poshandler #'posframe-poshandler-point-bottom-left-corner-upward
+                     :background-color (face-attribute 'lsp-rocks-hover-posframe :background nil t)
+                     :foreground-color (face-attribute 'lsp-rocks-hover-posframe :foreground nil t)))))
 
 (defun lsp-rocks--json-parse (json)
+  "Parse JSON data to `plist'."
   (json-parse-string json :object-type 'plist :array-type 'list))
 
 (defun lsp-rocks--json-stringify (object)
+  "Stringify OBJECT data to JSON."
   (json-serialize object :null-object nil))
 
 (defun lsp-rocks--request (cmd &optional params)
@@ -780,9 +797,10 @@ Doubles as an indicator of snippet support."
       (websocket-send-text
        client
        (lsp-rocks--json-stringify
-        (list :id id  :cmd cmd :params params))))))
+        (list :id id :cmd cmd :params params))))))
 
 (defun lsp-rocks--response (id cmd data)
+  "Send response to server."
   (websocket-send-text
    (lsp-rocks--get-websocket-client)
    (lsp-rocks--json-stringify
@@ -835,7 +853,8 @@ Doubles as an indicator of snippet support."
 
 (defun lsp-rocks--after-change (begin end len)
   (setq lsp-rocks--current-file-version (1+ lsp-rocks--current-file-version))
-  (lsp-rocks--did-change begin end len))
+  (lsp-rocks--did-change begin end len)
+  (lsp-rocks--signature-help t 3 nil))
 
 (defun lsp-rocks--before-revert-hook ()
   (lsp-rocks--did-close))
@@ -853,6 +872,20 @@ Doubles as an indicator of snippet support."
   (setq lsp-rocks-mode nil)
   (lsp-rocks--did-close))
 
+(defun lsp-rocks--post-command-hook ()
+  (let ((this-command-string (format "%s" this-command)))
+
+    (unless (member this-command-string '("self-insert-command" "company-complete-selection" "yas-next-field-or-maybe-expand"))
+      (posframe-hide lsp-rocks-signature-buffer))
+
+    (when lsp-rocks-mode
+      (posframe-hide lsp-rocks-hover-buffer))
+
+    (when (and lsp-rocks-mode
+               (or (string-equal this-command-string "company-complete-selection")
+                   (string-equal this-command-string "yas-next-field-or-maybe-expand")))
+      (lsp-rocks--signature-help t 3 nil))))
+
 (defconst lsp-rocks--internal-hooks
   '((before-change-functions . lsp-rocks--before-change)
     (after-change-functions . lsp-rocks--after-change)
@@ -861,7 +894,8 @@ Doubles as an indicator of snippet support."
     (kill-buffer-hook . lsp-rocks--kill-buffer-hook)
     (xref-backend-functions . lsp-rocks--xref-backend)
     (before-save-hook . lsp-rocks--before-save-hook)
-    (after-save-hook . lsp-rocks--after-save-hook)))
+    (after-save-hook . lsp-rocks--after-save-hook)
+    (post-command-hook . lsp-rocks--post-command-hook)))
 
 (defun lsp-rocks--enable ()
   (unless lsp-rocks--server-process
