@@ -223,6 +223,8 @@ This set of allowed chars is enough for hexifying local file paths.")
         ("textDocument/implementation" (lsp-rocks--process-find-definition data))
         ("textDocument/hover" (lsp-rocks--process-hover data))
         ("textDocument/signatureHelp" (lsp-rocks--process-signature-help data))
+        ("textDocument/prepareRename" (lsp-rocks--process-prepare-rename data))
+        ("textDocument/rename" (lsp-rocks--process-rename data))
         ))))
 
 (defun lsp-rocks--create-websocket-client (url)
@@ -321,53 +323,6 @@ as the prefix to be completed, or a cons cell of (prefix . t) to bypass
               (cons (substring symbol (length trigger-char)) t)
             symbol-cons)))
       (company-grab-symbol)))
-
-(defun lsp-rocks--apply-text-edits (edits &optional version)
-  "Apply EDITS for current buffer if at VERSION, or if it's nil."
-  (atomic-change-group
-    (let* ((change-group (prepare-change-group))
-           (howmany (length edits))
-           (reporter (make-progress-reporter
-                      (format "[lsp-rocks] applying %s edits to `%s'..."
-                              howmany (current-buffer))
-                      0 howmany))
-           (done 0))
-      (mapc (pcase-lambda (`(,newText ,beg . ,end))
-              (let ((source (current-buffer)))
-                (with-temp-buffer
-                  (insert newText)
-                  (let ((temp (current-buffer)))
-                    (with-current-buffer source
-                      (save-excursion
-                        (save-restriction
-                          (narrow-to-region beg end)
-
-                          ;; On emacs versions < 26.2,
-                          ;; `replace-buffer-contents' is buggy - it calls
-                          ;; change functions with invalid arguments - so we
-                          ;; manually call the change functions here.
-                          ;;
-                          ;; See emacs bugs #32237, #32278:
-                          ;; https://debbugs.gnu.org/cgi/bugreport.cgi?bug=32237
-                          ;; https://debbugs.gnu.org/cgi/bugreport.cgi?bug=32278
-                          (let ((inhibit-modification-hooks t)
-                                (length (- end beg))
-                                (beg (marker-position beg))
-                                (end (marker-position end)))
-                            (run-hook-with-args 'before-change-functions
-                                                beg end)
-                            (replace-buffer-contents temp)
-                            (run-hook-with-args 'after-change-functions
-                                                beg (+ beg (length newText))
-                                                length))))
-                      (progress-reporter-update reporter (cl-incf done)))))))
-            (mapcar (lambda (edit)
-                      (let ((range (plist-get edit :range))
-                            (newText (plist-get edit :newText)))
-                        (cons newText (lsp-rocks--range-region range 'markers))))
-                    (reverse edits)))
-      (undo-amalgamate-change-group change-group)
-      (progress-reporter-done reporter))))
 
 (defun lsp-rocks--company-post-completion (candidate)
   "Replace a CompletionItem's label with its insertText.  Apply text edits.
@@ -579,6 +534,91 @@ File paths with spaces are only supported inside strings."
   (interactive)
   (lsp-rocks--signature-help :false 1 nil))
 
+(defun lsp-rocks--prepare-rename ()
+  "Rename symbols."
+  (lsp-rocks--request "textDocument/prepareRename"
+                      (list :textDocument
+                            (list :uri (lsp-rocks--buffer-uri))
+                            :position
+                            (lsp-rocks--position))))
+
+(defvar-local lsp-rocks--prepare-result nil
+  "Result of `lsp-rocks--prepare-rename'.")
+
+(defcustom lsp-rocks-rename-use-prepare t
+  "Whether `lsp-rocks-rename' should do a prepareRename first.
+For some language servers, textDocument/prepareRename might be
+too slow, in which case this variable may be set to nil.
+`lsp-rocks-rename' will then use `thing-at-point' `symbol' to determine
+the symbol to rename at point."
+  :group 'lsp-rocks-mode
+  :type 'boolean)
+
+(defface lsp-rocks-face-rename '((t :underline t))
+  "Face used to highlight the identifier being renamed.
+Renaming can be done using `lsp-rocks-rename'."
+  :group 'lsp-rocks-mode)
+
+(defface lsp-rocks-rename-placeholder-face '((t :inherit font-lock-variable-name-face))
+  "Face used to display the rename placeholder in.
+When calling `lsp-rocks-rename' interactively, this will be the face of
+the new name."
+  :group 'lsp-rocks-mode)
+
+(defvar lsp-rocks-rename-history '()
+  "History for `lsp-rocks--read-rename'.")
+
+(defun lsp-rocks--read-rename (at-point)
+  "Read a new name for a `lsp-rocks-rename' at `point' from the user.
+
+Returns a string, which should be the new name for the identifier
+at point. If renaming cannot be done at point (as determined from
+AT-POINT), throw a `user-error'.
+
+This function is for use in `lsp-rocks-rename' only, and shall not be
+relied upon."
+  (unless at-point
+    (user-error "`lsp-rocks-rename' is invalid here"))
+
+  (let* ((start (caar at-point))
+         (end (cdar at-point))
+         (placeholder? (cdr at-point))
+         (rename-me (buffer-substring start end))
+         (placeholder (or placeholder? rename-me))
+         (placeholder (propertize placeholder 'face 'lsp-rocks-rename-placeholder-face))
+         overlay)
+
+    ;; We need unwind protect, as the user might cancel here, causing the
+    ;; overlay to linger.
+    (unwind-protect
+        (progn
+          (setq overlay (make-overlay start end))
+          (overlay-put overlay 'face 'lsp-rocks-face-rename)
+
+          (read-string (format "Rename %s to: " rename-me) placeholder
+                       'lsp-rocks-rename-history))
+      (and overlay (delete-overlay overlay)))))
+
+(defun lsp-rocks--rename-advice ()
+  (when lsp-rocks-rename-use-prepare
+    (lsp-rocks--prepare-rename)))
+(advice-add 'lsp-rocks-rename :before #'lsp-rocks--rename-advice)
+
+(defun lsp-rocks-rename ()
+  "Rename symbols."
+  (interactive)
+  (let ((newName (lsp-rocks--read-rename
+                  (or lsp-rocks--prepare-result
+                      (when-let ((bounds (bounds-of-thing-at-point 'symbol)))
+                        (cons bounds nil))))))
+    (lsp-rocks--request "textDocument/rename"
+                        (list :textDocument
+                              (list :uri (lsp-rocks--buffer-uri))
+                              :position
+                              (lsp-rocks--position)
+                              :newName
+                              newName))))
+
 (defun lsp-rocks--candidate-kind (item)
   "Return ITEM's kind."
   (alist-get (get-text-property 0 'kind item)
@@ -626,9 +666,8 @@ If optional MARKER, return a marker instead"
 (defun lsp-rocks--range-region (range &optional markers)
   "Return region (BEG . END) that represents LSP RANGE.
 If optional MARKERS, make markers."
-  (let* ((st (plist-get range :start))
-         (beg (lsp-rocks--lsp-position-to-point st markers))
-         (end (lsp-rocks--lsp-position-to-point (plist-get range :end) markers)))
+  (let ((beg (lsp-rocks--lsp-position-to-point (plist-get range :start) markers))
+        (end (lsp-rocks--lsp-position-to-point (plist-get range :end) markers)))
     (cons beg end)))
 
 (defun lsp-rocks--snippet-expansion-fn ()
@@ -778,6 +817,52 @@ Doubles as an indicator of snippet support."
                      :poshandler #'posframe-poshandler-point-bottom-left-corner-upward
                      :background-color (face-attribute 'lsp-rocks-hover-posframe :background nil t)
                      :foreground-color (face-attribute 'lsp-rocks-hover-posframe :foreground nil t)))))
+
+(defun lsp-rocks--process-prepare-rename (data)
+  (let* ((range (plist-get data :range))
+         (start (plist-get range :start))
+         (end (plist-get range :end))
+         (placeholder (plist-get data :placeholder))
+         (start-point (lsp-rocks--lsp-position-to-point start))
+         (end-point (lsp-rocks--lsp-position-to-point end)))
+    (setq-local lsp-rocks--prepare-result
+                (cons (cons start-point end-point)
+                      (if (string-empty-p placeholder) nil placeholder)))
+    (with-current-buffer (current-buffer)
+      (require 'pulse)
+      (let ((pulse-iterations 1)
+            (pulse-delay lsp-rocks-flash-line-delay))
+        (pulse-momentary-highlight-region start-point end-point 'lsp-rocks-font-lock-flash)))))
+
+(defun lsp-rocks--uri-to-path (uri)
+  "Convert URI to file path."
+  (when (keywordp uri) (setq uri (substring (symbol-name uri) 1)))
+  (let* ((retval (url-unhex-string (url-filename (url-generic-parse-url uri))))
+         ;; Remove the leading "/" for local MS Windows-style paths.
+         (normalized (if (and (eq system-type 'windows-nt)
+                              (cl-plusp (length retval)))
+                         (substring retval 1)
+                       retval)))
+    normalized))
+
+(defun lsp-rocks--process-rename (data)
+  (when lsp-rocks--prepare-result
+    (setq-local lsp-rocks--prepare-result nil))
+
+  (let ((changes (plist-get data :documentChanges)))
+    (dolist (item changes)
+      (let* ((textDocument (plist-get item :textDocument))
+             (filepath (lsp-rocks--uri-to-path (plist-get textDocument :uri)))
+             (edits (plist-get item :edits)))
+        (find-file-noselect filepath)
+        (save-excursion
+          (find-file filepath)
+          (dolist (edit edits)
+            (let ((region (lsp-rocks--range-region (plist-get edit :range)))
+                  (newText (plist-get edit :newText)))
+              (delete-region (car region) (cdr region))
+              (goto-char (car region))
+              (insert newText))))))))
 
 (defun lsp-rocks--json-parse (json)
   "Parse JSON data to `plist'."

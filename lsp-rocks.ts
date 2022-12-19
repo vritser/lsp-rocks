@@ -34,7 +34,7 @@ type RequestId = string;
 
 interface Message {
   id: RequestId,
-  cmd: ServerCommand | EmacsCommand,
+  cmd: string | ServerCommand | EmacsCommand,
 }
 
 interface RequestMessage extends Message {
@@ -61,9 +61,12 @@ export class LspRocks {
 
   readonly _clients: Map<string, LanguageClient>;
 
+  readonly _recentRequests: Map<string, any>;
+
   constructor(serverPort: number) {
     this._serverPort = serverPort;
     this._clients = new Map();
+    this._recentRequests = new Map();
   }
 
   public start() {
@@ -73,6 +76,7 @@ export class LspRocks {
 
         ws.on('message', async (msg: string) => {
           const message = JSON.parse(msg) as Message;
+          this._recentRequests.set(message.cmd, message.id);
           await this.messageHandler(ws, message);
         });
 
@@ -84,7 +88,9 @@ export class LspRocks {
 
   public async messageHandler(socket: WebSocket, msg: Message) {
     const { id, cmd } = msg;
-    console.log(`message =========> id: ${msg.id}, cmd: ${msg.cmd}, params: ${JSON.stringify((msg as any).params)}`);
+    console.log(`receive message => id: ${msg.id}, cmd: ${msg.cmd}, params: ${JSON.stringify((msg as any).params)}`);
+    const logLabel = `${id}:${cmd}`;
+    console.time(logLabel)
     if (Message.isResponse(msg)) {
       // TODO
     } else {
@@ -97,7 +103,14 @@ export class LspRocks {
         return;
       }
 
+      if (this._recentRequests.get(req.cmd) != req.id && req.cmd != 'textDocument/didChange') {
+        return;
+      }
       data = await client.on(req.cmd, req.params);
+      if (this._recentRequests.get(req.cmd) != req.id) {
+        return;
+      }
+      console.timeLog(logLabel)
       if (data != null) {
         socket.send(mkres(id, cmd, data));
       }

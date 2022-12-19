@@ -28,6 +28,7 @@ import { pathToFileURL } from 'node:url';
 import { TypeDefinitionFeature } from './features/typeDefinition';
 import { HoverFeature } from './features/hover';
 import { SignatureHelpFeature } from './features/signatureHelp';
+import { PrepareRenameFeature, RenameFeature } from './features/rename';
 
 
 enum ClientState {
@@ -372,6 +373,8 @@ export class LanguageClient {
     this.registerFeature(new ImplementationFeature(this));
     this.registerFeature(new HoverFeature(this));
     this.registerFeature(new SignatureHelpFeature(this));
+    this.registerFeature(new RenameFeature(this));
+    this.registerFeature(new PrepareRenameFeature(this));
   }
 
   protected fillInitializeParams(params: InitializeParams): void {
