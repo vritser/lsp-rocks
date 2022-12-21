@@ -32,6 +32,7 @@
 (require 'lsp-rocks-xref)
 (require 'posframe)
 (require 'markdown-mode)
+(require 'company)
 
 (defgroup lsp-rocks nil
   "LSP-Rocks group."
@@ -39,23 +40,22 @@
 
 (defcustom lsp-rocks-server-bin (concat (substring load-file-name 0 (s-index-of "lsp-rocks.el" load-file-name)) "lib/cli.js")
   "Location of lsp-rocks server."
+  :type 'string
   :group 'lsp-rocks)
 
 (defcustom lsp-rocks-name "*lsp-rocks*"
-  ""
+  "LSP-Rocks process buffer."
+  :type 'string
   :group 'lsp-rocks)
 
 (defcustom lsp-rocks-server-host "0.0.0.0"
-  ""
+  "LSP-Rocks server host."
+  :type 'string
   :group 'lsp-rocks)
 
 (defvar lsp-rocks--server-port nil)
 
 (defvar lsp-rocks--server-process nil)
-
-(defcustom lsp-rocks-use-ssl nil
-  ""
-  :group 'lsp-rocks)
 
 (defvar lsp-rocks--uri-file-prefix (pcase system-type
                                (`windows-nt "file:///")
@@ -922,16 +922,6 @@ Doubles as an indicator of snippet support."
   (if (= 0 n) ""
     (concat (lsp-rocks--random-alnum) (lsp-rocks--random-string (1- n)))))
 
-;; (defconst lsp-rocks--internal-hooks
-;;   '((before-change-functions . lsp-rocks-monitor-before-change)
-;;     (after-change-functions . lsp-rocks-monitor-after-change)
-;;     (post-command-hook . lsp-rocks-monitor-post-command)
-;;     (after-save-hook . lsp-rocks-monitor-after-save)
-;;     (kill-buffer-hook . lsp-rocks-close-buffer-file)
-;;     (find-file-hook . lsp-rocks-search-words-open-file)
-;;     (before-revert-hook . lsp-rocks-close-buffer-file)
-;;     ))
-
 (defun lsp-rocks--before-change (begin end)
   (setq-local lsp-rocks--before-change-begin-pos (lsp-rocks--point-position begin))
   (setq-local lsp-rocks--before-change-end-pos (lsp-rocks--point-position end)))
@@ -991,8 +981,7 @@ Doubles as an indicator of snippet support."
       (ignore-errors
         (lsp-rocks--save-websocket-client
          (lsp-rocks--create-websocket-client
-          (concat (if lsp-rocks-use-ssl "wss://" "ws://")
-                  lsp-rocks-server-host ":" lsp-rocks--server-port))))
+          (format "ws://%s:%s" lsp-rocks-server-host lsp-rocks--server-port))))
       (sleep-for 0 20)))
 
   (setq lsp-rocks-buffer-uri (lsp-rocks--buffer-uri))
