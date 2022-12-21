@@ -412,24 +412,26 @@ File paths with spaces are only supported inside strings."
 (defun lsp-rocks--will-save ()
   "Send textDocument/willSave notification."
   (lsp-rocks--request "textDocument/willSave"
-                      (list :textDocument (list :uri (lsp-rocks--buffer-uri))
-                            ;; 1 Manual, 2 AfterDelay, 3 FocusOut
-                            :reason 1)))
+                      ;; 1 Manual, 2 AfterDelay, 3 FocusOut
+                      (append '(:reason 1) (lsp-rocks--TextDocumentIdentifier))))
 
 (defun lsp-rocks--did-save ()
   "Send textDocument/didSave notification."
   (lsp-rocks--request "textDocument/didSave"
-                      (list :textDocument (list :uri (lsp-rocks--buffer-uri))
-                            :text (buffer-substring-no-properties (point-min) (point-max)))))
+                      (append `(:text ,(buffer-substring-no-properties (point-min) (point-max)))
+                              (lsp-rocks--TextDocumentIdentifier))))
 
 (defun lsp-rocks--completion (prefix)
-  (lsp-rocks--request "textDocument/completion"
-                      (list :prefix prefix
-                            :textDocument (list :uri (lsp-rocks--buffer-uri))
-                            :position (lsp-rocks--position)
-                            :context (if (member prefix lsp-rocks--trigger-characters)
-                                         (list :triggerKind 2 :triggerCharacter prefix)
-                                       (list :triggerKind 1)))))
+  (lsp-rocks--request "textDocument/completion" (lsp-rocks--completion-params prefix)))
+
+(defun lsp-rocks--completion-params (prefix)
+  "Make textDocument/completion params."
+  (append `(:prefix
+            ,prefix
+            :context ,(if (member prefix lsp-rocks--trigger-characters)
+                          `(:triggerKind 2 :triggerCharacter ,prefix)
+                        '(:triggerKind 1)))
+          (lsp-rocks--TextDocumentPosition)))
 
 (defun lsp-rocks--resolve (label)
   (lsp-rocks--request "completionItem/resolve"
@@ -557,12 +559,7 @@ relied upon."
                       (when-let ((bounds (bounds-of-thing-at-point 'symbol)))
                         (cons bounds nil))))))
     (lsp-rocks--request "textDocument/rename"
-                        (list :textDocument
-                              (list :uri (lsp-rocks--buffer-uri))
-                              :position
-                              (lsp-rocks--position)
-                              :newName
-                              newName))))
+                        (append `(:newName ,newName) (lsp-rocks--TextDocumentPosition)))))
 
 (defun lsp-rocks--candidate-kind (item)
   "Return ITEM's kind."
