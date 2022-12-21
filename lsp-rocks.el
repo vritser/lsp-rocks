@@ -395,11 +395,11 @@ File paths with spaces are only supported inside strings."
                                   :text (buffer-substring-no-properties (point-min) (point-max))))))
 
 (defun lsp-rocks--did-close ()
-  (lsp-rocks--request "textDocument/didClose"
-                      (list :textDocument
-                            (list :uri (lsp-rocks--buffer-uri)))))
+  "Send textDocument/didClose notification."
+  (lsp-rocks--request "textDocument/didClose" (lsp-rocks--TextDocumentIdentifier)))
 
 (defun lsp-rocks--did-change (begin end len)
+  "Send textDocument/didChange notification."
   (lsp-rocks--request "textDocument/didChange"
                       (list :textDocument
                             (list :uri (lsp-rocks--buffer-uri) :version lsp-rocks--current-file-version)
@@ -410,13 +410,14 @@ File paths with spaces are only supported inside strings."
                                    :text (buffer-substring-no-properties begin end))))))
 
 (defun lsp-rocks--will-save ()
-  "Send textDocument/willSave Notification."
+  "Send textDocument/willSave notification."
   (lsp-rocks--request "textDocument/willSave"
                       (list :textDocument (list :uri (lsp-rocks--buffer-uri))
                             ;; 1 Manual, 2 AfterDelay, 3 FocusOut
                             :reason 1)))
 
 (defun lsp-rocks--did-save ()
+  "Send textDocument/didSave notification."
   (lsp-rocks--request "textDocument/didSave"
                       (list :textDocument (list :uri (lsp-rocks--buffer-uri))
                             :text (buffer-substring-no-properties (point-min) (point-max)))))
@@ -437,85 +438,33 @@ File paths with spaces are only supported inside strings."
 (defun lsp-rocks-find-definition ()
   "Find definition."
   (interactive)
-  (lsp-rocks--request "textDocument/definition"
-                      (list :textDocument
-                            (list :uri (lsp-rocks--buffer-uri))
-                            :position
-                            (lsp-rocks--position))))
-
-(defun lsp-rocks-find-definition-return ()
-  "Pop off lsp-rocks--mark-ring and jump to the top location."
-  (interactive)
-  ;; Pop entries that refer to non-existent buffers.
-  (while (and lsp-rocks--mark-ring (not (marker-buffer (car lsp-rocks--mark-ring))))
-    (setq lsp-rocks--mark-ring (cdr lsp-rocks--mark-ring)))
-  (or lsp-rocks--mark-ring
-      (error "[LSP-Rocks] No lsp-rocks mark set"))
-  (let* ((this-buffer (current-buffer))
-         (marker (pop lsp-rocks--mark-ring))
-         (buffer (marker-buffer marker))
-         (position (marker-position marker)))
-    (set-buffer buffer)
-    (or (and (>= position (point-min))
-             (<= position (point-max)))
-        (if widen-automatically
-            (widen)
-          (error "[LSP-Rocks] mark position is outside accessible part of buffer %s"
-                 (buffer-name buffer))))
-    (goto-char position)
-    (unless (equal buffer this-buffer)
-      (switch-to-buffer buffer))))
+  (lsp-rocks--request "textDocument/definition" (lsp-rocks--TextDocumentPosition)))
 
 (defun lsp-rocks-find-type-definition ()
   "Find type definition."
   (interactive)
-  (lsp-rocks--request "textDocument/typeDefinition"
-                      (list :textDocument
-                            (list :uri (lsp-rocks--buffer-uri))
-                            :position
-                            (lsp-rocks--position))))
+  (lsp-rocks--request "textDocument/typeDefinition" (lsp-rocks--TextDocumentPosition)))
 
 (defun lsp-rocks-find-declaration ()
   "Find declaration."
   (interactive)
-  (lsp-rocks--request "textDocument/declaration"
-                      (list :textDocument
-                            (list :uri (lsp-rocks--buffer-uri))
-                            :position
-                            (lsp-rocks--position))))
+  (lsp-rocks--request "textDocument/declaration" (lsp-rocks--TextDocumentPosition)))
 
-(defalias 'lsp-rocks-find-declaration-return #'lsp-rocks-find-definition-return)
-
+;; (list :includeDeclaration t)
 (defun lsp-rocks-find-references ()
   "Find references."
   (interactive)
-  (lsp-rocks--request "textDocument/references"
-                      (list :textDocument
-                            (list :uri (lsp-rocks--buffer-uri))
-                            :position
-                            (lsp-rocks--position)
-                            :context
-                            (list :includeDeclaration t))))
+  (lsp-rocks--request "textDocument/references" (lsp-rocks--TextDocumentPosition)))
 
 (defun lsp-rocks-find-implementations ()
   "Find implementations."
   (interactive)
-  (lsp-rocks--request "textDocument/implementation"
-                      (list :textDocument
-                            (list :uri (lsp-rocks--buffer-uri))
-                            :position
-                            (lsp-rocks--position)
-                            :context
-                            (list :includeDeclaration t))))
+  (lsp-rocks--request "textDocument/implementation" (lsp-rocks--TextDocumentPosition)))
 
 (defun lsp-rocks-describe-thing-at-point ()
   "Display the type signature and documentation of the thing at point."
   (interactive)
-  (lsp-rocks--request "textDocument/hover"
-                      (list :textDocument
-                            (list :uri (lsp-rocks--buffer-uri))
-                            :position
-                            (lsp-rocks--position))))
+  (lsp-rocks--request "textDocument/hover" (lsp-rocks--TextDocumentPosition)))
 
 (defun lsp-rocks--signature-help (isRetrigger kind triggerCharacter)
   "Send signatureHelp request with params."
@@ -536,11 +485,7 @@ File paths with spaces are only supported inside strings."
 
 (defun lsp-rocks--prepare-rename ()
   "Rename symbols."
-  (lsp-rocks--request "textDocument/prepareRename"
-                      (list :textDocument
-                            (list :uri (lsp-rocks--buffer-uri))
-                            :position
-                            (lsp-rocks--position))))
+  (lsp-rocks--request "textDocument/prepareRename" (lsp-rocks--TextDocumentPosition)))
 
 (defvar-local lsp-rocks--prepare-result nil
   "Result of `lsp-rocks--prepare-rename'.")
@@ -863,6 +808,16 @@ Doubles as an indicator of snippet support."
               (delete-region (car region) (cdr region))
               (goto-char (car region))
               (insert newText))))))))
+
+(defun lsp-rocks--TextDocumentIdentifier ()
+  "Make a TextDocumentIdentifier object."
+  `(:textDocument
+    (:uri ,(lsp-rocks--buffer-uri))))
+
+(defun lsp-rocks--TextDocumentPosition ()
+  "Make a TextDocumentPosition object."
+  (append `(:position ,(lsp-rocks--position))
+          (lsp-rocks--TextDocumentIdentifier)))
 
 (defun lsp-rocks--json-parse (json)
   "Parse JSON data to `plist'."
