@@ -377,8 +377,12 @@ File paths with spaces are only supported inside strings."
     (no-cache t)
     (sorted t)
     (annotation (format " (%s)" (lsp-rocks--candidate-kind arg)))
+    (kind (lsp-rocks--candidate-kind arg))
     (meta (get-text-property 0 'detail arg))
     (post-completion (lsp-rocks--company-post-completion arg))))
+
+(defun company-box-icons--lsp-rocks (candidate)
+  (alist-get (lsp-rocks--candidate-kind-num candidate) company-box-icons--lsp-alist))
 
 (defun lsp-rocks--company-set-selection-advice (&rest args)
   (when-let (label (nth (car args) company-candidates))
@@ -562,9 +566,13 @@ relied upon."
                         (append `(:newName ,newName) (lsp-rocks--TextDocumentPosition)))))
 
 (defun lsp-rocks--candidate-kind (item)
-  "Return ITEM's kind."
+  "Return ITEM's kind symbol."
   (alist-get (get-text-property 0 'kind item)
              lsp-rocks--kind->symbol))
+
+(defun lsp-rocks--candidate-kind-num (item)
+  "Return ITEM's kind number."
+  (get-text-property 0 'kind item))
 
 (defun lsp-rocks--parse-completion (completions)
   "Parse LPS server returned COMPLETIONS."
@@ -939,6 +947,8 @@ Doubles as an indicator of snippet support."
   (setq lsp-rocks-buffer-uri (lsp-rocks--buffer-uri))
   (lsp-rocks--did-open)
   (add-to-list 'company-backends 'company-lsp-rocks)
+  (when (featurep 'company-box)
+    (add-to-list 'company-box-icons-functions 'company-box-icons--lsp-rocks))
   (dolist (hook lsp-rocks--internal-hooks)
     (add-hook (car hook) (cdr hook) nil t)))
 
