@@ -378,7 +378,7 @@ File paths with spaces are only supported inside strings."
     (sorted t)
     (annotation (format " (%s)" (lsp-rocks--candidate-kind arg)))
     (kind (lsp-rocks--candidate-kind arg))
-    (meta (get-text-property 0 'detail arg))
+    (meta (when lsp-rocks-eldoc-enable-hover (get-text-property 0 'detail arg)))
     (post-completion (lsp-rocks--company-post-completion arg))))
 
 (defun company-box-icons--lsp-rocks (candidate)
@@ -700,8 +700,18 @@ Doubles as an indicator of snippet support."
   :type 'string
   :group 'lsp-rocks)
 
+(defcustom lsp-rocks-eldoc-enable-hover  nil
+  "If non-nil, `eldoc' will display hover info when it is present."
+  :type 'boolean
+  :group 'lsp-rocks)
+
+(defcustom lsp-rocks-enable-signature nil
+  "Display signature documentation in `posframe'."
+  :type 'boolean
+  :group 'lsp-rocks)
+
 (defcustom lsp-rocks-signature-buffer " *lsp-rocks-signature*"
-  "Buffer for display signature help info."
+  "Buffer for display signature documentation."
   :type 'string
   :group 'lsp-rocks)
 
@@ -889,7 +899,8 @@ Doubles as an indicator of snippet support."
 (defun lsp-rocks--after-change (begin end len)
   (setq lsp-rocks--current-file-version (1+ lsp-rocks--current-file-version))
   (lsp-rocks--did-change begin end len)
-  (lsp-rocks--signature-help t 3 nil))
+  (when lsp-rocks-enable-signature
+    (lsp-rocks--signature-help t 3 nil)))
 
 (defun lsp-rocks--before-revert-hook ()
   (lsp-rocks--did-close))
@@ -917,6 +928,7 @@ Doubles as an indicator of snippet support."
       (posframe-hide lsp-rocks-hover-buffer))
 
     (when (and lsp-rocks-mode
+               lsp-rocks-enable-signature
                (or (string-equal this-command-string "company-complete-selection")
                    (string-equal this-command-string "yas-next-field-or-maybe-expand")))
       (lsp-rocks--signature-help t 3 nil))))
